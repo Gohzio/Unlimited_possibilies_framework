@@ -1,8 +1,10 @@
 [package]
-name = "my_chatrpg_game"
+name = "Unlimited_possibilities_framework"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
+eframe = "0.25"
+egui = "0.28"
+rfd = "0.14"
+
