@@ -1,0 +1,7 @@
+# Rust build output
+/target/
+
+# Rust Analyzer / Flycheck
+**/.idea/
+**/.vscode/
+**/.flycheck/
