@@ -1,5 +1,5 @@
 use std::sync::mpsc::{Receiver, Sender};
-
+use crate::model::message::RoleplaySpeaker; 
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::model::message::Message;
 
@@ -21,15 +21,17 @@ impl Engine {
         }
     }
 
-    pub fn update(&mut self) {
-        while let Ok(cmd) = self.rx.try_recv() {
+    // ✅ SINGLE, TOP-LEVEL impl method
+    pub fn run(&mut self) {
+        // Block until commands arrive
+        while let Ok(cmd) = self.rx.recv() {
             match cmd {
                 EngineCommand::UserInput(text) => {
                     self.messages.push(Message::User(text.clone()));
-                    self.messages.push(Message::Roleplay(format!(
-                        "Echoing back: {}",
-                        text
-                    )));
+                    self.messages.push(Message::Roleplay {
+                        speaker: RoleplaySpeaker::Narrator,
+                        text: format!("Echoing back: {}", text),
+                    });
 
                     let _ = self.tx.send(
                         EngineResponse::FullMessageHistory(self.messages.clone())
@@ -46,7 +48,10 @@ impl Engine {
                         EngineResponse::FullMessageHistory(self.messages.clone())
                     );
                 }
+
+
+                }
             }
         }
     }
-}
+
