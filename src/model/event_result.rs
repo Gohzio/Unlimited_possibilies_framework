@@ -11,3 +11,4 @@ pub enum EventResult {
 pub struct NarrativeApplyReport {
     pub results: Vec<EventResult>,
 }
+
