@@ -1,7 +1,8 @@
 use std::sync::mpsc::{Receiver, Sender};
-use crate::model::message::RoleplaySpeaker; 
+
 use crate::engine::protocol::{EngineCommand, EngineResponse};
-use crate::model::message::Message;
+use crate::model::event_result::{EventResult, NarrativeApplyReport};
+use crate::model::message::{Message, RoleplaySpeaker};
 
 pub struct Engine {
     rx: Receiver<EngineCommand>,
@@ -21,13 +22,16 @@ impl Engine {
         }
     }
 
-    // ✅ SINGLE, TOP-LEVEL impl method
+    /// Main engine loop (runs on background thread)
     pub fn run(&mut self) {
         // Block until commands arrive
         while let Ok(cmd) = self.rx.recv() {
             match cmd {
                 EngineCommand::UserInput(text) => {
+                    // Record user input
                     self.messages.push(Message::User(text.clone()));
+
+                    // TEMP: fake narrator response
                     self.messages.push(Message::Roleplay {
                         speaker: RoleplaySpeaker::Narrator,
                         text: format!("Echoing back: {}", text),
@@ -44,14 +48,25 @@ impl Engine {
                         path.display()
                     )));
 
+                    // TEMP: fake narrative application report
+                    let report = NarrativeApplyReport {
+                        results: vec![
+                            EventResult::Applied,
+                        ],
+                    };
+
+                    // Send logic-layer result first
+                    let _ = self.tx.send(
+                        EngineResponse::NarrativeApplied { report }
+                    );
+
+                    // Then send updated UI state
                     let _ = self.tx.send(
                         EngineResponse::FullMessageHistory(self.messages.clone())
                     );
                 }
-
-
-                }
             }
         }
     }
+}
 
