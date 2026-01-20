@@ -5,6 +5,7 @@ use egui::Layout;
 use crate::engine::engine::Engine;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::model::message::{Message, RoleplaySpeaker};
+use crate::model::event_result::EventApplyOutcome;
 
 #[derive(Default)]
 struct UiState {
@@ -130,9 +131,41 @@ impl eframe::App for MyApp {
         ctx.set_pixels_per_point(self.ui.ui_scale);
 
         while let Ok(resp) = self.resp_rx.try_recv() {
-            if let EngineResponse::FullMessageHistory(messages) = resp {
-                self.ui.rendered_messages = messages;
+            match resp {
+                EngineResponse::FullMessageHistory(msgs) => {
+                    self.ui.rendered_messages = msgs;
+                    self.ui.should_auto_scroll = true;
+            }
+            EngineResponse::NarrativeApplied { report, snapshot: _ } => {
+                for application in report.applications {
+                    let text = match application.outcome {
+                        EventApplyOutcome::Applied => {
+                            format!("✔ Applied: {}", application.event.short_name())
+                        }
+
+                        EventApplyOutcome::Rejected { reason } => {
+                            format!(
+                            "❌ Rejected: {}\nReason: {}",
+                            application.event.short_name(),
+                            reason
+                            )
+                        }
+
+                        EventApplyOutcome::Deferred { reason } => {
+                            format!(
+                            "⚠ Deferred: {}\nReason: {}",
+                            application.event.short_name(),
+                            reason
+                            )
+                        }                    
+                    };
+
+                    self.ui.rendered_messages.push(
+                        Message::System(text)
+                    );
+                }
                 self.ui.should_auto_scroll = true;
+
             }
         }
 
@@ -236,4 +269,5 @@ impl eframe::App for MyApp {
 
         self.ui.should_auto_scroll = false;
     }
-}   
+}
+}

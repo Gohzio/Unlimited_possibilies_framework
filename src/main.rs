@@ -1,4 +1,3 @@
-use eframe::egui;
 
 mod ui;
 mod engine;

@@ -28,24 +28,33 @@ pub fn apply_event(
             EventApplyOutcome::Applied
         }
 
-NarrativeEvent::AddPartyMember { id, name, role, .. } => {
-    if state.party.contains_key(&id) {
-        return EventApplyOutcome::Rejected {
-            reason: format!("Party member '{}' already exists", id),
-        };
-    }
+        NarrativeEvent::AddPartyMember { id, name, role, .. } => {
+            if state.party.contains_key(&id) {
+                return EventApplyOutcome::Rejected {
+                    reason: format!("Party member '{}' already exists", id),
+                };
+            }
 
-    state.party.insert(
-        id.clone(),
-        crate::model::game_state::PartyMember {
-            id,
-            name,
-            role,
-            hp: 100,
-        },
-    );
+            state.party.insert(
+                id.clone(),
+                crate::model::game_state::PartyMember {
+                    id,
+                    name,
+                    role,
+                    hp: 100,
+                },
+            );
 
             EventApplyOutcome::Applied
+        }
+
+        NarrativeEvent::AddItem { item_id, quantity } => {
+            EventApplyOutcome::Deferred {
+                reason: format!(
+                    "AddItem '{}' (x{}) deferred: inventory not implemented",
+                    item_id, quantity
+                ),
+            }
         }
 
         _ => EventApplyOutcome::Deferred {
@@ -53,4 +62,3 @@ NarrativeEvent::AddPartyMember { id, name, role, .. } => {
         },
     }
 }
-
