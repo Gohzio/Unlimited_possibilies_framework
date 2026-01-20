@@ -1,193 +1,125 @@
-📌 RPG Chat App – GitHub Roadmap
+# 🧭 Unlimited Possibilities Framework — Development Roadmap
 
-Status legend
-⬜ Not started
-🟨 In progress
-✅ Done
+> **Goal**  
+> A fully offline, moddable RPG / narrative framework driven by structured events,  
+> with optional LLM integration — *never required*.
 
-🟢 Milestone 1 — Stabilization & Cleanup
+---
 
-Goal: Make the codebase easy to reason about and safe to extend.
+## ✅ Phase 0 — Foundations (Mostly Done)
 
-Issue #1: Editor & Structure Hygiene
+> Core architecture, data flow, and safety rails
 
-⬜ Enable Rust Analyzer
+- [x] Project compiles and runs
+- [x] Engine ↔ UI thread separation
+- [x] InternalGameState (authoritative mutable state)
+- [x] NarrativeEvent enum (typed world changes)
+- [x] apply_event system with Applied / Rejected / Deferred outcomes
+- [x] NarrativeApplyReport for event application results
+- [x] GameStateSnapshot (read-only, UI/LLM safe)
+- [x] Basic egui UI with message log
+- [x] Fake / stub LLM JSON decoding (`llm_decode`)
 
-⬜ Enable bracket/brace matching
+---
 
-⬜ Add section comments in update() (// Settings, // Input, // Messages)
+## 🧩 Phase 1 — State Visibility & Trust (Current Focus)
 
-⬜ Collapse long UI blocks where possible
+> “If we can’t see it, we can’t reason about it.”
 
-Issue #2: Message Bubble Helper
+- [ ] Engine emits GameStateSnapshot with NarrativeApplyReport
+- [ ] UI stores latest snapshot in UiState
+- [ ] Sidebar panel renders snapshot data (read-only)
+- [ ] Temporary adapter maps snapshot → display rows
+- [ ] Deferred events show explicit reasons in UI
+- [ ] Rejected events show explicit reasons in UI
+- [ ] No gameplay assumptions in UI (pure data rendering)
 
-Description: Reduce duplication in draw_message.
+---
 
-⬜ Create message_bubble(ui, bg_color, text)
+## 🧠 Phase 2 — Event Completeness & Safety
 
-⬜ Replace duplicated egui::Frame code
+> “Every event is either applied, rejected, or deferred — never silent.”
 
-⬜ Keep text styling centralized
+- [ ] Ensure NarrativeEvent match is exhaustive
+- [ ] Add default `_ => Deferred` handling where appropriate
+- [ ] Add `AddItem` event (Deferred until inventory exists)
+- [ ] Add `ModifyStat` event
+- [ ] Add `SetFlag` event
+- [ ] Add `StartQuest` / `UpdateQuest` events
+- [ ] Improve EventApplyOutcome clarity
 
-Acceptance Criteria
+---
 
-Only one place controls bubble padding, rounding, font size
+## 🧪 Phase 3 — LLM Integration (Optional, Controlled)
 
-Issue #3: Constrain Bubble Width
+> “LLMs suggest. The engine decides.”
 
-Description: Prevent messages from stretching edge-to-edge.
+- [ ] Define official NarrativeEvent JSON schema
+- [ ] Validate LLM output before decoding
+- [ ] Decode LLM JSON → NarrativeEvent
+- [ ] Display decoded events in debug UI
+- [ ] Apply LLM events through apply_event pipeline
+- [ ] Surface Deferred / Rejected reasons back to user
+- [ ] No direct LLM → state mutation
 
-⬜ Limit bubble width to ~60–70% of available width
+---
 
-⬜ Ensure long text wraps correctly
+## 🎛 Phase 4 — User-Defined State & Monitoring
 
-⬜ Works for both left & right aligned messages
+> “Stats are concepts, not hardcoded numbers.”
 
-🟡 Milestone 2 — UX Polish
+- [ ] Convert stats to key/value model (e.g. `"souls": 120`)
+- [ ] Allow arbitrary stat names
+- [ ] Allow users to choose which stats to monitor
+- [ ] UI supports dynamic stat lists
+- [ ] Snapshot reflects only current truth
+- [ ] No STR/DEX/INT assumptions
 
-Goal: Make the app feel intentional and readable.
+---
 
-Issue #4: Speaker Labels
+## 🧱 Phase 5 — Modding & Persistence  
+*(Codename: Post-Hyperific Sentinel Codifying Conjunction)*
 
-⬜ Add speaker name above message bubble
+- [ ] Serialize InternalGameState to disk
+- [ ] Load saved state safely
+- [ ] External narrative packs (JSON / RON / YAML)
+- [ ] Mod-defined NarrativeEvents
+- [ ] Versioned save compatibility
+- [ ] Clear error messages for broken mods
 
-⬜ Match label color to bubble theme
+---
 
-⬜ Hide label for System messages
+## 🎨 Phase 6 — Polish (After Everything Works)
 
-Issue #5: Optional Timestamps
+- [ ] Improved snapshot UI
+- [ ] Collapsible state sections
+- [ ] Optional animation
+- [ ] Theme presets
+- [ ] Accessibility pass
+- [ ] Performance cleanup
 
-⬜ Add timestamp field to Message
+---
 
-⬜ Display in subtle gray text
+## 🧠 Core Design Rules (Non-Negotiable)
 
-⬜ Toggleable via settings
+- The engine is authoritative
+- The UI never mutates state
+- The LLM is optional
+- All state changes go through NarrativeEvent
+- Every event produces an outcome
+- Snapshots are read-only
+- Nothing is hardcoded unless unavoidable
 
-Issue #6: Keyboard UX Improvements
+---
 
-⬜ Enter = send message
+## 🧩 If You’re Lost
 
-⬜ Shift+Enter = newline
+Start here:  
+**Phase 1 → State Visibility & Trust**
 
-⬜ Esc = clear input
+If you can:
+- See the snapshot
+- See applied / deferred / rejected events
 
-⬜ (Optional) Ctrl+↑ edits last user message
+Then the framework is already a success.
 
-🟠 Milestone 3 — Persistent Settings
-
-Goal: User preferences survive restarts.
-
-Issue #7: AppSettings Struct
-
-⬜ Create AppSettings (ui scale, theme, speakers later)
-
-⬜ Derive Serialize / Deserialize
-
-⬜ Default fallback implementation
-
-Issue #8: Save Settings to Disk
-
-⬜ Save on theme change
-
-⬜ Save on UI scale change
-
-⬜ Store in config file (json or ron)
-
-Issue #9: Load Settings on Startup
-
-⬜ Load settings in MyApp::new()
-
-⬜ Graceful fallback on file error
-
-⬜ Apply theme + scale immediately
-
-🔵 Milestone 4 — Speaker System
-
-Goal: Support multiple characters cleanly and extensibly.
-
-Issue #10: Expand RoleplaySpeaker Enum
-
-⬜ Change to:
-
-Narrator
-Npc(String)
-PartyMember(String)
-
-
-⬜ Update engine message creation
-
-⬜ Update UI rendering logic
-
-Issue #11: Speaker Registry
-
-⬜ Create Speaker { name, color }
-
-⬜ Store in HashMap<String, Speaker>
-
-⬜ Default speakers added on first run
-
-Issue #12: Speaker Editor Window
-
-⬜ List all speakers
-
-⬜ Edit speaker color
-
-⬜ Rename speakers
-
-⬜ Add/remove speakers
-
-🟣 Milestone 5 — Engine Intelligence
-
-Goal: Make the engine feel alive and reactive.
-
-Issue #13: Streaming Responses
-
-⬜ Engine emits partial tokens
-
-⬜ UI updates message incrementally
-
-⬜ Typing indicator shown
-
-Issue #14: System vs Roleplay Logic
-
-⬜ Narrator never speaks as User
-
-⬜ NPC/Party roles respected
-
-⬜ System messages styled uniquely
-
-Issue #15: Context Management
-
-⬜ Trim old messages automatically
-
-⬜ Pin lore / important messages
-
-⬜ Reset session button
-
-⚫ Milestone 6 — Identity & Polish
-
-Goal: Turn this into a finished application.
-
-Issue #16: Visual Identity
-
-⬜ App icon
-
-⬜ Font selection
-
-⬜ Dark / light themes
-
-Issue #17: Animations
-
-⬜ Message fade-in
-
-⬜ Slide-in for user messages
-
-⬜ Smooth scroll to bottom
-
-Issue #18: Session Export
-
-⬜ Export chat to file
-
-⬜ Markdown or plain text
-
-⬜ Include speaker metadata
