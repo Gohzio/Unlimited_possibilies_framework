@@ -7,7 +7,9 @@ pub struct GameStateSnapshot {
     pub version: u32,
 
     pub player: PlayerState,
-    pub stats: PlayerStats,
+
+    /// Dynamic, user-defined stats (e.g. strength, souls, corruption)
+    pub stats: Vec<Stat>,
 
     pub powers: Vec<Power>,
     pub party: Vec<PartyMember>,
@@ -17,19 +19,18 @@ pub struct GameStateSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Stat {
+    pub id: String,
+    pub value: i32, 
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerState {
     pub name: String,
     pub level: u32,
     pub hp: i32,
     pub max_hp: i32,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerStats {
-    pub strength: i32,
-    pub dexterity: i32,
-    pub intelligence: i32,
-}
+   
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Power {

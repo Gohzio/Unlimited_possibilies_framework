@@ -1,61 +1,24 @@
-use crate::model::game_state::GameStateSnapshot;
-use crate::model::game_state::{
-    PlayerState,
-    PlayerStats,
-    Power,
-    PartyMember,
-    Quest,
-};
+use crate::model::game_state::{GameStateSnapshot, Stat};
+use std::collections::HashSet;
 
-/// Authoritative, mutable game state.
-/// NEVER sent directly to an LLM.
-#[derive(Debug)]
-pub struct GameState {
-    version: u32,
-
-    player: PlayerState,
-    stats: PlayerStats,
-
-    powers: Vec<Power>,
-    party: Vec<PartyMember>,
-    quests: Vec<Quest>,
-
-    flags: Vec<String>,
-}
-
-impl GameState {
-    /// Create a brand-new game state
-    pub fn new() -> Self {
-        Self {
-            version: 1,
-            player: PlayerState {
-                name: "Player".into(),
-                level: 1,
-                hp: 10,
-                max_hp: 10,
-            },
-            stats: PlayerStats {
-                strength: 1,
-                dexterity: 1,
-                intelligence: 1,
-            },
-            powers: Vec::new(),
-            party: Vec::new(),
-            quests: Vec::new(),
-            flags: Vec::new(),
-        }
-    }
-
-    /// Produce a read-only snapshot for LLMs
-    pub fn snapshot(&self) -> GameStateSnapshot {
+impl From<&InternalGameState> for GameStateSnapshot {
+    fn from(state: &InternalGameState) -> Self {
         GameStateSnapshot {
-            version: self.version,
-            player: self.player.clone(),
-            stats: self.stats.clone(),
-            powers: self.powers.clone(),
-            party: self.party.clone(),
-            quests: self.quests.clone(),
-            flags: self.flags.clone(),
+            version: state.version,
+            player: state.player.clone(),
+
+            stats: state.stats
+                .iter()
+                .map(|(id, value)| Stat {
+                    id: id.clone(),
+                    value: *value,
+                })
+                .collect(),
+
+            powers: state.powers.values().cloned().collect(),
+            party: state.party.values().cloned().collect(),
+            quests: state.quests.values().cloned().collect(),
+            flags: state.flags.iter().cloned().collect(),
         }
     }
 }

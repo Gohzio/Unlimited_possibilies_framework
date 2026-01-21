@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-
-
 pub enum NarrativeEvent {
     GrantPower {
         id: String,
@@ -18,7 +16,7 @@ pub enum NarrativeEvent {
     },
 
     ModifyStat {
-        stat: String,
+        stat_id: String,
         delta: i32,
     },
 
@@ -35,11 +33,13 @@ pub enum NarrativeEvent {
     RequestRetcon {
         reason: String,
     },
+
     AddItem {
         item_id: String,
         quantity: u32,
     },
 }
+
 impl NarrativeEvent {
     pub fn short_name(&self) -> &'static str {
         match self {
@@ -53,4 +53,3 @@ impl NarrativeEvent {
         }
     }
 }
-

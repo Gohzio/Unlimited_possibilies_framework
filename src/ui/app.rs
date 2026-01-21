@@ -2,16 +2,20 @@ use eframe::egui;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use egui::Layout;
+
 use crate::engine::engine::Engine;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::model::message::{Message, RoleplaySpeaker};
 use crate::model::event_result::EventApplyOutcome;
+use crate::model::game_state::GameStateSnapshot;
 
 #[derive(Default)]
 struct UiState {
     input_text: String,
     selected_llm_path: Option<PathBuf>,
     rendered_messages: Vec<Message>,
+
+    snapshot: Option<GameStateSnapshot>,
 
     ui_scale: f32,
     should_auto_scroll: bool,
@@ -67,36 +71,47 @@ impl MyApp {
     }
 
     fn draw_message(&self, ui: &mut egui::Ui, msg: &Message) {
-    let (bg_color, align_right, label) = match msg {
-        Message::User(t) => (
-            self.theme.user,
-            true,
-            format!("You: {}", t),
+        let (bg_color, align_right, label) = match msg {
+            Message::User(t) => (
+                self.theme.user,
+                true,
+                format!("You: {}", t),
+            ),
 
+            Message::Roleplay { speaker, text } => {
+                let color = match speaker {
+                    RoleplaySpeaker::Narrator => self.theme.narrator,
+                    RoleplaySpeaker::Npc => self.theme.npc,
+                    RoleplaySpeaker::PartyMember => self.theme.party_member,
+                };
 
-        ),
+                (color, false, text.clone())
+            }
 
-        Message::Roleplay { speaker, text } => {
-            let color = match speaker {
-                RoleplaySpeaker::Narrator => self.theme.narrator,
-                RoleplaySpeaker::Npc => self.theme.npc,
-                RoleplaySpeaker::PartyMember => self.theme.party_member,
-            };
+            Message::System(t) => (
+                egui::Color32::DARK_GRAY,
+                false,
+                t.clone(),
+            ),
+        };
 
-            (color, false, text.clone())
-        }
+        ui.add_space(6.0);
 
-        Message::System(t) => (
-            egui::Color32::DARK_GRAY,
-            false,
-            t.clone(),
-        ),
-    };
-
-    ui.add_space(6.0);
-
-    if align_right {
-        ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
+        if align_right {
+            ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
+                egui::Frame::none()
+                    .fill(bg_color)
+                    .rounding(egui::Rounding::same(8.0))
+                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new(label)
+                                .color(egui::Color32::WHITE)
+                                .size(16.0),
+                        );
+                    });
+            });
+        } else {
             egui::Frame::none()
                 .fill(bg_color)
                 .rounding(egui::Rounding::same(8.0))
@@ -108,68 +123,55 @@ impl MyApp {
                             .size(16.0),
                     );
                 });
-        });
-    } else {
-        egui::Frame::none()
-            .fill(bg_color)
-            .rounding(egui::Rounding::same(8.0))
-            .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-            .show(ui, |ui| {
-                ui.label(
-                    egui::RichText::new(label)
-                        .color(egui::Color32::WHITE)
-                        .size(16.0),
-                );
-            });
         }
     }
 }
-
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(self.ui.ui_scale);
 
+        // Receive engine responses
         while let Ok(resp) = self.resp_rx.try_recv() {
             match resp {
                 EngineResponse::FullMessageHistory(msgs) => {
                     self.ui.rendered_messages = msgs;
                     self.ui.should_auto_scroll = true;
-            }
-            EngineResponse::NarrativeApplied { report, snapshot: _ } => {
-                for application in report.applications {
-                    let text = match application.outcome {
-                        EventApplyOutcome::Applied => {
-                            format!("✔ Applied: {}", application.event.short_name())
-                        }
-
-                        EventApplyOutcome::Rejected { reason } => {
-                            format!(
-                            "❌ Rejected: {}\nReason: {}",
-                            application.event.short_name(),
-                            reason
-                            )
-                        }
-
-                        EventApplyOutcome::Deferred { reason } => {
-                            format!(
-                            "⚠ Deferred: {}\nReason: {}",
-                            application.event.short_name(),
-                            reason
-                            )
-                        }                    
-                    };
-
-                    self.ui.rendered_messages.push(
-                        Message::System(text)
-                    );
                 }
-                self.ui.should_auto_scroll = true;
 
+                EngineResponse::NarrativeApplied { report, snapshot } => {
+                    self.ui.snapshot = Some(snapshot);
+
+                    for application in report.applications {
+                        let text = match application.outcome {
+                            EventApplyOutcome::Applied => {
+                                format!("✔ Applied: {}", application.event.short_name())
+                            }
+                            EventApplyOutcome::Rejected { reason } => {
+                                format!(
+                                    "❌ Rejected: {}\nReason: {}",
+                                    application.event.short_name(),
+                                    reason
+                                )
+                            }
+                            EventApplyOutcome::Deferred { reason } => {
+                                format!(
+                                    "⚠ Deferred: {}\nReason: {}",
+                                    application.event.short_name(),
+                                    reason
+                                )
+                            }
+                        };
+
+                        self.ui.rendered_messages.push(Message::System(text));
+                    }
+
+                    self.ui.should_auto_scroll = true;
+                }
             }
         }
 
-        // Settings panel
+        // LEFT: Settings
         egui::SidePanel::left("settings_panel")
             .default_width(220.0)
             .show(ctx, |ui| {
@@ -198,6 +200,37 @@ impl eframe::App for MyApp {
                 }
             });
 
+        // RIGHT: World State Snapshot
+        egui::SidePanel::right("world_state_panel")
+            .default_width(260.0)
+            .show(ctx, |ui| {
+                ui.heading("World State");
+                ui.separator();
+
+                if let Some(snapshot) = &self.ui.snapshot {
+                    ui.label(format!("Version: {}", snapshot.version));
+                    ui.separator();
+
+                    ui.label("Player");
+                    ui.label(format!("Name: {}", snapshot.player.name));
+                    ui.label(format!("Level: {}", snapshot.player.level));
+                    ui.label(format!(
+                        "HP: {}/{}",
+                        snapshot.player.hp,
+                        snapshot.player.max_hp
+                    ));
+
+                    ui.separator();
+                    ui.label("Stats");
+
+                    for stat in &snapshot.stats {
+                        ui.label(format!("{}: {}", stat.id, stat.value));
+                    }
+                } else {
+                    ui.label("No snapshot yet");
+                }
+            });
+
         // Theme window
         if self.ui.show_theme_window {
             egui::Window::new("Theme")
@@ -210,17 +243,14 @@ impl eframe::App for MyApp {
                         ui.label("User");
                         ui.color_edit_button_srgba(&mut self.theme.user);
                     });
-
                     ui.horizontal(|ui| {
                         ui.label("Narrator");
                         ui.color_edit_button_srgba(&mut self.theme.narrator);
                     });
-
                     ui.horizontal(|ui| {
                         ui.label("NPC");
                         ui.color_edit_button_srgba(&mut self.theme.npc);
                     });
-
                     ui.horizontal(|ui| {
                         ui.label("Party Member");
                         ui.color_edit_button_srgba(&mut self.theme.party_member);
@@ -228,7 +258,7 @@ impl eframe::App for MyApp {
                 });
         }
 
-        // Input
+        // Bottom input
         egui::TopBottomPanel::bottom("input_panel")
             .resizable(false)
             .default_height(120.0)
@@ -256,7 +286,7 @@ impl eframe::App for MyApp {
                 }
             });
 
-        // Messages
+        // Center: Messages
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(self.ui.should_auto_scroll)
@@ -269,5 +299,4 @@ impl eframe::App for MyApp {
 
         self.ui.should_auto_scroll = false;
     }
-}
 }

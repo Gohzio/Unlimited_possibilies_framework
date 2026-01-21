@@ -28,7 +28,7 @@ pub fn apply_event(
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::AddPartyMember { id, name, role, .. } => {
+        NarrativeEvent::AddPartyMember { id, name, role } => {
             if state.party.contains_key(&id) {
                 return EventApplyOutcome::Rejected {
                     reason: format!("Party member '{}' already exists", id),
@@ -46,6 +46,18 @@ pub fn apply_event(
             );
 
             EventApplyOutcome::Applied
+        }
+
+        NarrativeEvent::ModifyStat { stat_id, delta } => {
+            match state.stats.get_mut(&stat_id) {
+                Some(value) => {
+                    *value += delta;
+                    EventApplyOutcome::Applied
+                }
+                None => EventApplyOutcome::Deferred {
+                    reason: format!("Unknown stat '{}'", stat_id),
+                },
+            }
         }
 
         NarrativeEvent::AddItem { item_id, quantity } => {

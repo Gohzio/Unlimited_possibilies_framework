@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::model::game_state::{
     GameStateSnapshot,
     PlayerState,
-    PlayerStats,
+    Stat,
     Power,
     PartyMember,
     Quest,
@@ -14,32 +14,45 @@ pub struct InternalGameState {
     pub version: u32,
 
     pub player: PlayerState,
-    pub stats: PlayerStats,
+
+    /// Authoritative internal stats store
+    /// Key = stat id (e.g. "strength", "souls")
+    pub stats: HashMap<String, i32>,
 
     pub powers: HashMap<String, Power>,
     pub party: HashMap<String, PartyMember>,
     pub quests: HashMap<String, Quest>,
 
-    pub flags: Vec<String>,
+    pub flags: HashSet<String>,
 }
 
-impl InternalGameState {
-    /// Produce a read-only snapshot for LLMs / UI
-    pub fn snapshot(&self) -> GameStateSnapshot {
+impl From<&InternalGameState> for GameStateSnapshot {
+    fn from(state: &InternalGameState) -> Self {
         GameStateSnapshot {
-            version: self.version,
-            player: self.player.clone(),
-            stats: self.stats.clone(),
-            powers: self.powers.values().cloned().collect(),
-            party: self.party.values().cloned().collect(),
-            quests: self.quests.values().cloned().collect(),
-            flags: self.flags.clone(),
+            version: state.version,
+            player: state.player.clone(),
+            stats: state.stats
+                .iter()
+                .map(|(id, value)| Stat {
+                    id: id.clone(),
+                    value: *value,
+                })
+                .collect(),
+            powers: state.powers.values().cloned().collect(),
+            party: state.party.values().cloned().collect(),
+            quests: state.quests.values().cloned().collect(),
+            flags: state.flags.iter().cloned().collect(),
         }
     }
 }
 
 impl Default for InternalGameState {
     fn default() -> Self {
+        let mut stats = HashMap::new();
+        stats.insert("strength".into(), 10);
+        stats.insert("dexterity".into(), 10);
+        stats.insert("intelligence".into(), 10);
+
         Self {
             version: 1,
 
@@ -50,17 +63,13 @@ impl Default for InternalGameState {
                 max_hp: 100,
             },
 
-            stats: PlayerStats {
-                strength: 10,
-                dexterity: 10,
-                intelligence: 10,
-            },
+            stats,
 
             powers: HashMap::new(),
             party: HashMap::new(),
             quests: HashMap::new(),
 
-            flags: Vec::new(),
+            flags: HashSet::new(),
         }
     }
 }

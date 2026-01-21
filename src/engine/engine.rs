@@ -80,7 +80,7 @@ EngineCommand::LoadLlm(path) => {
     }
 
     let report = NarrativeApplyReport { applications };
-    let snapshot = self.game_state.snapshot();
+    let snapshot = (&self.game_state).into();
 
     let _ = self.tx.send(
         EngineResponse::NarrativeApplied {
