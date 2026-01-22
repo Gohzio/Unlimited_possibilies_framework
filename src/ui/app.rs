@@ -9,6 +9,18 @@ use crate::model::message::{Message, RoleplaySpeaker};
 use crate::model::event_result::EventApplyOutcome;
 use crate::model::game_state::GameStateSnapshot;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeftTab {
+    Settings,
+    Party,
+    Options,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RightTab {
+    Player,
+}
+
 #[derive(Default)]
 struct UiState {
     input_text: String,
@@ -20,6 +32,9 @@ struct UiState {
     ui_scale: f32,
     should_auto_scroll: bool,
     show_theme_window: bool,
+
+    left_tab: LeftTab,
+    right_tab: RightTab,
 }
 
 #[derive(Clone)]
@@ -40,6 +55,17 @@ impl Default for Theme {
         }
     }
 }
+impl Default for LeftTab {
+    fn default() -> Self {
+        LeftTab::Settings
+    }
+}
+impl Default for RightTab {
+    fn default() -> Self {
+        RightTab::Player
+    }
+}
+
 
 pub struct MyApp {
     ui: UiState,
@@ -62,6 +88,8 @@ impl MyApp {
         Self {
             ui: UiState {
                 ui_scale: 1.0,
+                left_tab: LeftTab::Settings,
+                right_tab: RightTab::Player,
                 ..Default::default()
             },
             theme: Theme::default(),
@@ -131,7 +159,7 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(self.ui.ui_scale);
 
-        // Receive engine responses
+        // --- Engine responses ---
         while let Ok(resp) = self.resp_rx.try_recv() {
             match resp {
                 EngineResponse::FullMessageHistory(msgs) => {
@@ -171,67 +199,112 @@ impl eframe::App for MyApp {
             }
         }
 
-        // LEFT: Settings
-        egui::SidePanel::left("settings_panel")
+        // --- LEFT PANEL (Tabbed) ---
+        egui::SidePanel::left("left_panel")
             .default_width(220.0)
             .show(ctx, |ui| {
-                ui.heading("Settings");
-                ui.separator();
-
-                ui.label("UI Scale");
-                ui.add(
-                    egui::Slider::new(&mut self.ui.ui_scale, 0.75..=2.0)
-                        .step_by(0.05),
-                );
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.ui.left_tab, LeftTab::Settings, "Settings");
+                    ui.selectable_value(&mut self.ui.left_tab, LeftTab::Party, "Party");
+                    ui.selectable_value(&mut self.ui.left_tab, LeftTab::Options, "Options");
+                });
 
                 ui.separator();
 
-                if ui.button("Theme…").clicked() {
-                    self.ui.show_theme_window = true;
-                }
+                match self.ui.left_tab {
+                    LeftTab::Settings => {
+                        ui.heading("Settings");
+                        ui.separator();
 
-                ui.separator();
+                        ui.label("UI Scale");
+                        ui.add(
+                            egui::Slider::new(&mut self.ui.ui_scale, 0.75..=2.0)
+                                .step_by(0.05),
+                        );
 
-                if ui.button("Select LLM File").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        self.ui.selected_llm_path = Some(path.clone());
-                        let _ = self.cmd_tx.send(EngineCommand::LoadLlm(path));
+                        ui.separator();
+
+                        if ui.button("Theme…").clicked() {
+                            self.ui.show_theme_window = true;
+                        }
+
+                        ui.separator();
+
+                        if ui.button("Select LLM File").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                self.ui.selected_llm_path = Some(path.clone());
+                                let _ = self.cmd_tx.send(EngineCommand::LoadLlm(path));
+                            }
+                        }
+                    }
+
+                    LeftTab::Party => {
+                        ui.heading("Party");
+
+                        if let Some(snapshot) = &self.ui.snapshot {
+                            if snapshot.party.is_empty() {
+                                ui.label("No party members yet");
+                            } else {
+                                for member in &snapshot.party {
+                                    ui.group(|ui| {
+                                        ui.label(&member.name);
+                                        ui.label(format!("Role: {}", member.role));
+                                        ui.label(format!("HP: {}", member.hp));
+                                    });
+                                }
+                            }
+                        } else {
+                            ui.label("No snapshot yet");
+                        }
+                    }
+
+                    LeftTab::Options => {
+                        ui.heading("Options");
+                        ui.label("LLM configuration coming soon");
+                        ui.label("• Temperature");
+                        ui.label("• Context window");
+                        ui.label("• System prompt");
                     }
                 }
             });
 
-        // RIGHT: World State Snapshot
+        // --- RIGHT PANEL (Tabbed) ---
         egui::SidePanel::right("world_state_panel")
             .default_width(260.0)
             .show(ctx, |ui| {
-                ui.heading("World State");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut self.ui.right_tab, RightTab::Player, "Player");
+                });
+
                 ui.separator();
 
-                if let Some(snapshot) = &self.ui.snapshot {
-                    ui.label(format!("Version: {}", snapshot.version));
-                    ui.separator();
+                match self.ui.right_tab {
+                    RightTab::Player => {
+                        ui.heading("Player");
 
-                    ui.label("Player");
-                    ui.label(format!("Name: {}", snapshot.player.name));
-                    ui.label(format!("Level: {}", snapshot.player.level));
-                    ui.label(format!(
-                        "HP: {}/{}",
-                        snapshot.player.hp,
-                        snapshot.player.max_hp
-                    ));
+                        if let Some(snapshot) = &self.ui.snapshot {
+                            ui.label(format!("Name: {}", snapshot.player.name));
+                            ui.label(format!("Level: {}", snapshot.player.level));
+                            ui.label(format!(
+                                "HP: {}/{}",
+                                snapshot.player.hp,
+                                snapshot.player.max_hp
+                            ));
 
-                    ui.separator();
-                    ui.label("Stats");
+                            ui.separator();
+                            ui.heading("Stats");
 
-                    for stat in &snapshot.stats {
-                        ui.label(format!("{}: {}", stat.id, stat.value));
+                            for stat in &snapshot.stats {
+                                ui.label(format!("{}: {}", stat.id, stat.value));
+                            }
+                        } else {
+                            ui.label("No snapshot yet");
+                        }
                     }
-                } else {
-                    ui.label("No snapshot yet");
                 }
             });
 
-        // Theme window
+        // --- Theme window ---
         if self.ui.show_theme_window {
             egui::Window::new("Theme")
                 .open(&mut self.ui.show_theme_window)
@@ -258,7 +331,7 @@ impl eframe::App for MyApp {
                 });
         }
 
-        // Bottom input
+        // --- Bottom input ---
         egui::TopBottomPanel::bottom("input_panel")
             .resizable(false)
             .default_height(120.0)
@@ -286,7 +359,7 @@ impl eframe::App for MyApp {
                 }
             });
 
-        // Center: Messages
+        // --- Center messages ---
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(self.ui.should_auto_scroll)
