@@ -134,6 +134,10 @@ This design ensures:
 *This README reflects locked decisions.  
 Changes to these principles should be deliberate and documented.*
 
-
-Then the framework is already a success.
-
+| Section                | Player             | Engine    | LLM  |
+| ---------------------- | -----------------  | --------  | ---  |
+| Meta                   | ✅ edit            | ❌        | ❌   |
+| Identity               | ✅ edit (pre-game) | ❌        | ❌   |
+| Mechanical Foundations | ✅ start           | ✅ mutate | ❌   |
+| Equipment / Inventory  | ✅ start           | ✅ mutate | ❌   |
+| Narrative Directives   | ✅ edit anytime    | ❌        | ❌   |
