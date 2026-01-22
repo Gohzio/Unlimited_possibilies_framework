@@ -1,37 +1,34 @@
 use eframe::egui;
-use std::path::PathBuf;
-use std::sync::mpsc;
 use egui::Layout;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::mpsc;
 
 use crate::engine::engine::Engine;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
-use crate::model::message::{Message, RoleplaySpeaker};
 use crate::model::event_result::EventApplyOutcome;
 use crate::model::game_state::GameStateSnapshot;
+use crate::model::message::{Message, RoleplaySpeaker};
 
 /* =========================
-   World Definition (UI only)
+   World Definition
    ========================= */
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct WorldDefinition {
-    // Meta
     title: String,
     world_id: String,
     author: String,
 
-    // World
     description: String,
     themes: Vec<String>,
     tone: Vec<String>,
 
-    // Narrator
     narrator_role: String,
     style_guidelines: Vec<String>,
     opening_message: String,
 
-    // Constraints
     must_not: Vec<String>,
     must_always: Vec<String>,
 }
@@ -39,61 +36,89 @@ struct WorldDefinition {
 impl Default for WorldDefinition {
     fn default() -> Self {
         Self {
-            // --- Meta ---
             title: "Untitled World".into(),
             world_id: "world_001".into(),
-            author: "Your name or handle".into(),
+            author: "Your name".into(),
 
-            // --- World ---
-            description: 
-                "Describe the world setting, genre, and core premise.\n\
-                 Example: A fractured empire ruled by ancient dragon-blooded queens."
+            description:
+                "Describe the world, its rules, factions, and overall premise."
                     .into(),
 
-            themes: vec![
-                "Power and legacy".into(),
-                "Political intrigue".into(),
-                "Myth and prophecy".into(),
-            ],
+            themes: vec!["Power".into(), "Legacy".into()],
+            tone: vec!["Serious".into(), "Epic".into()],
 
-            tone: vec![
-                "Serious".into(),
-                "Epic".into(),
-                "Character-driven".into(),
-            ],
-
-            // --- Narrator ---
-            narrator_role: 
-                "Act as the narrator and primary voice of the world.\n\
-                 Describe scenes, portray NPCs, and advance the story."
+            narrator_role:
+                "Act as the narrator and all NPCs. Never control the player."
                     .into(),
 
             style_guidelines: vec![
                 "Show, don’t tell".into(),
-                "Use vivid but concise descriptions".into(),
-                "Stay in third-person unless speaking as an NPC".into(),
+                "Stay immersive".into(),
             ],
 
-            opening_message: 
-                "The story begins with the player arriving at the edge of the known world..."
+            opening_message:
+                "The adventure begins at the edge of the known world…"
                     .into(),
 
-            // --- Constraints ---
             must_not: vec![
                 "Do not control the player character".into(),
-                "Do not reveal hidden information unless discovered".into(),
-                "Do not break immersion or reference being an AI".into(),
+                "Do not break immersion".into(),
             ],
 
             must_always: vec![
-                "Respond as the narrator or an in-world character".into(),
-                "Respect established world rules and continuity".into(),
-                "Use structured events when game state should change".into(),
+                "Respect established lore".into(),
+                "Use structured events for state changes".into(),
             ],
         }
     }
 }
 
+/* =========================
+   Character Definition
+   ========================= */
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CharacterDefinition {
+    name: String,
+    class: String,
+    background: String,
+
+    /// Free-form stats chosen by the player
+    stats: HashMap<String, i32>,
+
+    /// Active abilities
+    powers: Vec<String>,
+
+    /// Innate traits, boons, curses, blessings
+    features: Vec<String>,
+
+    /// Items / equipment
+    inventory: Vec<String>,
+}
+
+impl Default for CharacterDefinition {
+    fn default() -> Self {
+        let mut stats = HashMap::new();
+        stats.insert("strength".into(), 10);
+        stats.insert("constitution".into(), 10);
+        stats.insert("agility".into(), 10);
+        stats.insert("intelligence".into(), 10);
+        stats.insert("luck".into(), 10);
+
+        Self {
+            name: "Unnamed Hero".into(),
+            class: "Adventurer".into(),
+            background:
+                "Describe your character’s origin, motivations, and past."
+                    .into(),
+
+            stats,
+            powers: vec!["Basic combat training".into()],
+            features: vec![],
+            inventory: vec!["Simple clothing".into()],
+        }
+    }
+}
 
 /* =========================
    Tabs
@@ -106,16 +131,16 @@ enum LeftTab {
     Options,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RightTab {
-    Player,
-    World,
-}
-
 impl Default for LeftTab {
     fn default() -> Self {
         LeftTab::Settings
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RightTab {
+    Player,
+    World,
 }
 
 impl Default for RightTab {
@@ -133,8 +158,9 @@ struct UiState {
     input_text: String,
     selected_llm_path: Option<PathBuf>,
     rendered_messages: Vec<Message>,
-
     snapshot: Option<GameStateSnapshot>,
+    new_stat_name: String,
+    new_stat_value: i32,
 
     ui_scale: f32,
     should_auto_scroll: bool,
@@ -144,6 +170,7 @@ struct UiState {
     right_tab: RightTab,
 
     world: WorldDefinition,
+    character: CharacterDefinition,
 }
 
 /* =========================
@@ -203,52 +230,39 @@ impl MyApp {
     }
 
     fn draw_message(&self, ui: &mut egui::Ui, msg: &Message) {
-        let (bg_color, align_right, label) = match msg {
-            Message::User(t) => (self.theme.user, true, format!("You: {}", t)),
+        let (bg, right, text) = match msg {
+            Message::User(t) => (self.theme.user, true, format!("You: {t}")),
             Message::Roleplay { speaker, text } => {
-                let color = match speaker {
+                let c = match speaker {
                     RoleplaySpeaker::Narrator => self.theme.narrator,
                     RoleplaySpeaker::Npc => self.theme.npc,
                     RoleplaySpeaker::PartyMember => self.theme.party_member,
                 };
-                (color, false, text.clone())
+                (c, false, text.clone())
             }
             Message::System(t) => (egui::Color32::DARK_GRAY, false, t.clone()),
         };
 
         ui.add_space(6.0);
 
-        if align_right {
+        if right {
             ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
-                egui::Frame::none()
-                    .fill(bg_color)
-                    .rounding(egui::Rounding::same(8.0))
-                    .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-                    .show(ui, |ui| {
-                        ui.label(egui::RichText::new(label).color(egui::Color32::WHITE));
-                    });
+                bubble(ui, bg, &text);
             });
         } else {
-            egui::Frame::none()
-                .fill(bg_color)
-                .rounding(egui::Rounding::same(8.0))
-                .inner_margin(egui::Margin::symmetric(10.0, 6.0))
-                .show(ui, |ui| {
-                    ui.label(egui::RichText::new(label).color(egui::Color32::WHITE));
-                });
+            bubble(ui, bg, &text);
         }
     }
 }
 
 /* =========================
-   egui App impl
+   egui App
    ========================= */
 
 impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         ctx.set_pixels_per_point(self.ui.ui_scale);
 
-        // --- Engine responses ---
         while let Ok(resp) = self.resp_rx.try_recv() {
             match resp {
                 EngineResponse::FullMessageHistory(msgs) => {
@@ -257,15 +271,16 @@ impl eframe::App for MyApp {
                 }
                 EngineResponse::NarrativeApplied { report, snapshot } => {
                     self.ui.snapshot = Some(snapshot);
-                    for application in report.applications {
-                        let text = match application.outcome {
-                            EventApplyOutcome::Applied => format!("✔ Applied: {}", application.event.short_name()),
+                    for a in report.applications {
+                        let t = match a.outcome {
+                            EventApplyOutcome::Applied =>
+                                format!("✔ Applied: {}", a.event.short_name()),
                             EventApplyOutcome::Rejected { reason } =>
-                                format!("❌ Rejected: {}\n{}", application.event.short_name(), reason),
+                                format!("❌ Rejected: {}\n{}", a.event.short_name(), reason),
                             EventApplyOutcome::Deferred { reason } =>
-                                format!("⚠ Deferred: {}\n{}", application.event.short_name(), reason),
+                                format!("⚠ Deferred: {}\n{}", a.event.short_name(), reason),
                         };
-                        self.ui.rendered_messages.push(Message::System(text));
+                        self.ui.rendered_messages.push(Message::System(t));
                     }
                     self.ui.should_auto_scroll = true;
                 }
@@ -273,147 +288,36 @@ impl eframe::App for MyApp {
         }
 
         /* LEFT PANEL */
-egui::SidePanel::left("left_panel")
-    .default_width(220.0)
-    .show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.ui.left_tab, LeftTab::Settings, "Settings");
-            ui.selectable_value(&mut self.ui.left_tab, LeftTab::Party, "Party");
-            ui.selectable_value(&mut self.ui.left_tab, LeftTab::Options, "Options");
+        egui::SidePanel::left("left").resizable(false).default_width(180.0).show(ctx, |ui| {
+        
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.ui.left_tab, LeftTab::Settings, "Settings");
+                ui.selectable_value(&mut self.ui.left_tab, LeftTab::Party, "Party");
+                ui.selectable_value(&mut self.ui.left_tab, LeftTab::Options, "Options");
+            });
+
+            ui.separator();
+
+            if self.ui.left_tab == LeftTab::Settings {
+                ui.label("UI Scale");
+                ui.add(egui::Slider::new(&mut self.ui.ui_scale, 0.75..=2.0));
+            }
         });
 
-        ui.separator();
-
-        match self.ui.left_tab {
-            LeftTab::Settings => {
-                ui.heading("Settings");
-                ui.separator();
-
-                ui.label("UI Scale");
-                ui.add(
-                    egui::Slider::new(&mut self.ui.ui_scale, 0.75..=2.0)
-                        .step_by(0.05),
-                );
-
-                ui.separator();
-
-                if ui.button("Theme…").clicked() {
-                    self.ui.show_theme_window = true;
-                }
-
-                ui.separator();
-
-                if ui.button("Select LLM File").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        self.ui.selected_llm_path = Some(path.clone());
-                        let _ = self.cmd_tx.send(EngineCommand::LoadLlm(path));
-                    }
-                }
-            }
-
-            LeftTab::Party => {
-                ui.heading("Party");
-
-                if let Some(snapshot) = &self.ui.snapshot {
-                    if snapshot.party.is_empty() {
-                        ui.label("No party members yet");
-                    } else {
-                        for member in &snapshot.party {
-                            ui.group(|ui| {
-                                ui.label(&member.name);
-                                ui.label(format!("Role: {}", member.role));
-                                ui.label(format!("HP: {}", member.hp));
-                            });
-                        }
-                    }
-                } else {
-                    ui.label("No snapshot yet");
-                }
-            }
-
-            LeftTab::Options => {
-                ui.heading("Options");
-                ui.label("LLM configuration coming soon");
-                ui.label("• Temperature");
-                ui.label("• Context window");
-                ui.label("• System prompt");
-            }
-        }
-    });
-
-
         /* RIGHT PANEL */
-        egui::SidePanel::right("right_panel").show(ctx, |ui| {
+        egui::SidePanel::right("right").resizable(true).default_width(340.0).min_width(260.0).show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.ui.right_tab, RightTab::Player, "Player");
                 ui.selectable_value(&mut self.ui.right_tab, RightTab::World, "World");
             });
             ui.separator();
 
-            match self.ui.right_tab {
-                RightTab::Player => {
-                    if let Some(snapshot) = &self.ui.snapshot {
-                        ui.label(format!("Name: {}", snapshot.player.name));
-                        ui.label(format!("Level: {}", snapshot.player.level));
-                        ui.label(format!("HP: {}/{}", snapshot.player.hp, snapshot.player.max_hp));
-                        ui.separator();
-                        for stat in &snapshot.stats {
-                            ui.label(format!("{}: {}", stat.id, stat.value));
-                        }
-                    }
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                match self.ui.right_tab {
+                    RightTab::Player => draw_character(ui, &mut self.ui),
+                    RightTab::World => draw_world(ui, &mut self.ui.world),
                 }
-
-                RightTab::World => {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.heading("World");
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Save").clicked() {
-                                    if let Some(path) = rfd::FileDialog::new().save_file() {
-                                        if let Ok(json) = serde_json::to_string_pretty(&self.ui.world) {
-                                            let _ = std::fs::write(path, json);
-                                        }
-                                    }
-                                }
-                                if ui.button("Load").clicked() {
-                                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                        if let Ok(text) = std::fs::read_to_string(path) {
-                                            if let Ok(world) = serde_json::from_str(&text) {
-                                                self.ui.world = world;
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        });
-
-                        ui.separator();
-
-                        ui.collapsing("Meta", |ui| {
-                            ui.text_edit_singleline(&mut self.ui.world.title);
-                            ui.text_edit_singleline(&mut self.ui.world.world_id);
-                            ui.text_edit_singleline(&mut self.ui.world.author);
-                        });
-
-                        ui.collapsing("World", |ui| {
-                            ui.text_edit_multiline(&mut self.ui.world.description);
-                            multiline_vec(ui, &mut self.ui.world.themes);
-                            multiline_vec(ui, &mut self.ui.world.tone);
-                        });
-
-                        ui.collapsing("Narrator", |ui| {
-                            ui.text_edit_multiline(&mut self.ui.world.narrator_role);
-                            multiline_vec(ui, &mut self.ui.world.style_guidelines);
-                            ui.text_edit_multiline(&mut self.ui.world.opening_message);
-                        });
-
-                        ui.collapsing("Constraints", |ui| {
-                            multiline_vec(ui, &mut self.ui.world.must_not);
-                            multiline_vec(ui, &mut self.ui.world.must_always);
-                        });
-                    });
-                }
-            }
+            });
         });
 
         /* CENTER */
@@ -432,17 +336,180 @@ egui::SidePanel::left("left_panel")
 }
 
 /* =========================
-   Helpers
+   UI Helpers
    ========================= */
+fn editable_list(ui: &mut egui::Ui, items: &mut Vec<String>, hint: &str) {
+    let mut to_remove: Option<usize> = None;
+    let mut new_item = String::new();
 
-fn multiline_vec(ui: &mut egui::Ui, vec: &mut Vec<String>) {
-    let mut text = vec.join("\n");
-    if ui.text_edit_multiline(&mut text).changed() {
-        *vec = text
-            .lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
-            .map(|l| l.to_string())
-            .collect();
+    for (i, item) in items.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(item);
+            if ui.small_button("❌").clicked() {
+                to_remove = Some(i);
+            }
+        });
     }
+
+    if let Some(i) = to_remove {
+        items.remove(i);
+    }
+
+    ui.separator();
+
+    ui.horizontal(|ui| {
+        ui.add_sized(
+            [200.0, 20.0],
+            egui::TextEdit::singleline(&mut new_item).hint_text(hint),
+        );
+
+        if ui.button("Add").clicked() && !new_item.trim().is_empty() {
+            items.push(new_item);
+        }
+    });
 }
+
+
+fn bubble(ui: &mut egui::Ui, color: egui::Color32, text: &str) {
+    egui::Frame::none()
+        .fill(color)
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .show(ui, |ui| {
+            ui.label(egui::RichText::new(text).color(egui::Color32::WHITE));
+        });
+}
+
+fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
+    let c = &mut state.character;
+
+    ui.heading("Character");
+
+    ui.label("Name");
+    ui.text_edit_singleline(&mut c.name);
+
+    ui.label("Class");
+    ui.text_edit_singleline(&mut c.class);
+
+    ui.collapsing("Background", |ui| {
+        ui.text_edit_multiline(&mut c.background);
+    });
+fn list(ui: &mut egui::Ui, label: &str, items: &Vec<String>) {
+    ui.collapsing(label, |ui| {
+        if items.is_empty() {
+            ui.label("None");
+        } else {
+            for i in items {
+                ui.label(format!("• {i}"));
+            }
+        }
+    });
+}
+
+    /* -------- Stats -------- */
+
+    ui.collapsing("Stats", |ui| {
+        let mut to_remove: Option<String> = None;
+
+        // Existing stats
+        let keys: Vec<String> = c.stats.keys().cloned().collect();
+        for key in keys {
+            if let Some(value) = c.stats.get_mut(&key) {
+                ui.horizontal(|ui| {
+                    ui.label(&key);
+                    ui.add(egui::DragValue::new(value).speed(1));
+
+                    if ui.small_button("❌").clicked() {
+                        to_remove = Some(key.clone());
+                    }
+                });
+            }
+        }
+
+        if let Some(key) = to_remove {
+            c.stats.remove(&key);
+        }
+
+        ui.separator();
+
+        // Add new stat
+        ui.label("Add new stat");
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut state.new_stat_name);
+            ui.add(
+                egui::DragValue::new(&mut state.new_stat_value)
+                    .speed(1)
+                    .clamp_range(0..=999),
+            );
+
+            if ui.button("Add").clicked() {
+                let name = state.new_stat_name.trim();
+
+                if !name.is_empty() && !c.stats.contains_key(name) {
+                    c.stats.insert(name.to_string(), state.new_stat_value);
+                    state.new_stat_name.clear();
+                    state.new_stat_value = 10;
+                }
+            }
+        });
+    });
+
+    /* -------- Lists -------- */
+
+    list(ui, "Powers", &c.powers);
+    list(ui, "Features & Boons", &c.features);
+    list(ui, "Inventory", &c.inventory);
+}
+
+fn draw_world(ui: &mut egui::Ui, w: &mut WorldDefinition) {
+    ui.heading("World Definition");
+
+    ui.separator();
+    ui.label("Title");
+    ui.text_edit_singleline(&mut w.title);
+
+    ui.label("World ID");
+    ui.text_edit_singleline(&mut w.world_id);
+
+    ui.label("Author");
+    ui.text_edit_singleline(&mut w.author);
+
+    ui.separator();
+    ui.collapsing("Description", |ui| {
+        ui.text_edit_multiline(&mut w.description);
+    });
+
+    ui.collapsing("Themes", |ui| {
+        editable_list(ui, &mut w.themes, "Add theme");
+    });
+
+    ui.collapsing("Tone", |ui| {
+        editable_list(ui, &mut w.tone, "Add tone");
+    });
+
+    ui.separator();
+    ui.collapsing("Narration & Style", |ui| {
+        ui.label("Narrator Role");
+        ui.text_edit_multiline(&mut w.narrator_role);
+
+        ui.separator();
+        ui.label("Style Guidelines");
+        editable_list(ui, &mut w.style_guidelines, "Add guideline");
+    });
+
+    ui.separator();
+    ui.collapsing("Opening Message", |ui| {
+        ui.text_edit_multiline(&mut w.opening_message);
+    });
+
+    ui.separator();
+    ui.collapsing("Hard Constraints", |ui| {
+        ui.label("Must NOT");
+        editable_list(ui, &mut w.must_not, "Add restriction");
+
+        ui.separator();
+        ui.label("Must ALWAYS");
+        editable_list(ui, &mut w.must_always, "Add rule");
+    });
+}
+
