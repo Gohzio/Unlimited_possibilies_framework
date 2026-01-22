@@ -1,125 +1,139 @@
-# 🧭 Unlimited Possibilities Framework — Development Roadmap
+# Narrative Engine – Roadmap & Architecture
 
-> **Goal**  
-> A fully offline, moddable RPG / narrative framework driven by structured events,  
-> with optional LLM integration — *never required*.
+This project is a deterministic narrative RPG engine where **the engine owns truth**  
+and an external LLM acts purely as a constrained narrator.
 
----
-
-## ✅ Phase 0 — Foundations (Mostly Done)
-
-> Core architecture, data flow, and safety rails
-
-- [x] Project compiles and runs
-- [x] Engine ↔ UI thread separation
-- [x] InternalGameState (authoritative mutable state)
-- [x] NarrativeEvent enum (typed world changes)
-- [x] apply_event system with Applied / Rejected / Deferred outcomes
-- [x] NarrativeApplyReport for event application results
-- [x] GameStateSnapshot (read-only, UI/LLM safe)
-- [x] Basic egui UI with message log
-- [x] Fake / stub LLM JSON decoding (`llm_decode`)
+The LLM is *not authoritative*.  
+All state changes are validated, applied, or rejected by the engine.
 
 ---
 
-## 🧩 Phase 1 — State Visibility & Trust (Current Focus)
+## ✅ Locked Architectural Decisions
 
-> “If we can’t see it, we can’t reason about it.”
-
-- [ ] Engine emits GameStateSnapshot with NarrativeApplyReport
-- [ ] UI stores latest snapshot in UiState
-- [ ] Sidebar panel renders snapshot data (read-only)
-- [ ] Temporary adapter maps snapshot → display rows
-- [ ] Deferred events show explicit reasons in UI
-- [ ] Rejected events show explicit reasons in UI
-- [ ] No gameplay assumptions in UI (pure data rendering)
+- The engine **does not load models**
+- LLM inference runs **externally**
+- Communication uses an **OpenAI-compatible HTTP API**
+- **LM Studio** is the primary supported runtime
+- A **single LLM** is sufficient (engine enforces constraints)
 
 ---
 
-## 🧠 Phase 2 — Event Completeness & Safety
+## 🧭 Current Development Roadmap
 
-> “Every event is either applied, rejected, or deferred — never silent.”
-
-- [ ] Ensure NarrativeEvent match is exhaustive
-- [ ] Add default `_ => Deferred` handling where appropriate
-- [ ] Add `AddItem` event (Deferred until inventory exists)
-- [ ] Add `ModifyStat` event
-- [ ] Add `SetFlag` event
-- [ ] Add `StartQuest` / `UpdateQuest` events
-- [ ] Improve EventApplyOutcome clarity
+### 1️⃣ Lock LLM Runtime & API
+- [x] Use **LM Studio** as the reference implementation
+- [x] OpenAI-compatible `/v1/chat/completions` schema
+- [x] HTTP-based, replaceable backend (LM Studio / Ollama / OpenAI)
+- [x] No `.gguf` loading inside the engine
 
 ---
 
-## 🧪 Phase 3 — LLM Integration (Optional, Controlled)
-
-> “LLMs suggest. The engine decides.”
-
-- [ ] Define official NarrativeEvent JSON schema
-- [ ] Validate LLM output before decoding
-- [ ] Decode LLM JSON → NarrativeEvent
-- [ ] Display decoded events in debug UI
-- [ ] Apply LLM events through apply_event pipeline
-- [ ] Surface Deferred / Rejected reasons back to user
-- [ ] No direct LLM → state mutation
-
----
-
-## 🎛 Phase 4 — User-Defined State & Monitoring
-
-> “Stats are concepts, not hardcoded numbers.”
-
-- [ ] Convert stats to key/value model (e.g. `"souls": 120`)
-- [ ] Allow arbitrary stat names
-- [ ] Allow users to choose which stats to monitor
-- [ ] UI supports dynamic stat lists
-- [ ] Snapshot reflects only current truth
-- [ ] No STR/DEX/INT assumptions
+### 2️⃣ Complete Character / World JSON Structure
+- [x] Lock `WorldDefinition` schema
+- [x] Five sections:
+  - Meta
+  - World
+  - Narrator
+  - Constraints
+  - Output
+- [x] Player-editable via UI **or** JSON upload
+- [x] Engine treats this as authoritative configuration
 
 ---
 
-## 🧱 Phase 5 — Modding & Persistence  
-*(Codename: Post-Hyperific Sentinel Codifying Conjunction)*
-
-- [ ] Serialize InternalGameState to disk
-- [ ] Load saved state safely
-- [ ] External narrative packs (JSON / RON / YAML)
-- [ ] Mod-defined NarrativeEvents
-- [ ] Versioned save compatibility
-- [ ] Clear error messages for broken mods
-
----
-
-## 🎨 Phase 6 — Polish (After Everything Works)
-
-- [ ] Improved snapshot UI
-- [ ] Collapsible state sections
-- [ ] Optional animation
-- [ ] Theme presets
-- [ ] Accessibility pass
-- [ ] Performance cleanup
+### 3️⃣ Define LLMRequest + LLMResponse
+- [ ] Define engine-facing request struct
+- [ ] Include:
+  - Prompt text
+  - Model name
+  - Temperature / top-p (later)
+- [ ] Define response struct:
+  - Raw text
+  - Finish reason
+  - Token usage (optional)
+- [ ] Keep interface backend-agnostic
 
 ---
 
-## 🧠 Core Design Rules (Non-Negotiable)
-
-- The engine is authoritative
-- The UI never mutates state
-- The LLM is optional
-- All state changes go through NarrativeEvent
-- Every event produces an outcome
-- Snapshots are read-only
-- Nothing is hardcoded unless unavoidable
+### 4️⃣ 🧱 Prompt Builder (WorldDefinition → Prompt)
+- [ ] Render `WorldDefinition` into deterministic system prompt
+- [ ] Inject:
+  - World rules
+  - Narrator role
+  - Style guidelines
+  - Hard constraints (`must_not`, `must_always`)
+- [ ] Append:
+  - Current world state snapshot
+  - Recent message history
+  - Player input
+- [ ] Explicit output rules (machine-readable)
 
 ---
 
-## 🧩 If You’re Lost
+### 5️⃣ 🔍 Output Parser + Validator
+- [ ] Split narration vs events
+- [ ] Parse structured event output (JSON)
+- [ ] Validate:
+  - Schema correctness
+  - Stat existence
+  - Rule violations
+- [ ] Reject / defer invalid events
+- [ ] Never trust raw LLM output
 
-Start here:  
-**Phase 1 → State Visibility & Trust**
+---
 
-If you can:
-- See the snapshot
-- See applied / deferred / rejected events
+### 6️⃣ 🔄 Hook Into `EngineCommand::UserInput`
+- [ ] On user input:
+  - Build prompt
+  - Send LLM request
+  - Receive response
+- [ ] Parse output
+- [ ] Apply validated events
+- [ ] Emit:
+  - Renderable narration
+  - System feedback for rejected actions
+
+---
+
+### 7️⃣ 🧪 Test With a Dummy Model
+- [ ] Stub LLM client returning fixed responses
+- [ ] Test:
+  - Happy path
+  - Invalid JSON
+  - Rule-breaking events
+- [ ] Ensure engine never panics on bad output
+- [ ] Confirm UI rendering works without live inference
+
+---
+
+## 🧠 Core Philosophy
+
+> **The engine is law.  
+> The LLM is a storyteller.  
+> The player is always in control.**
+
+This design ensures:
+- Deterministic gameplay
+- Replaceable AI backends
+- Strong modding potential
+- No model lock-in
+- Long-term maintainability
+
+---
+
+## 🚀 Future (Not Yet Implemented)
+
+- Multi-character narrator styles
+- Streaming token support
+- Per-world output formatting
+- Advanced prompt debugging tools
+- Saveable prompt presets
+
+---
+
+*This README reflects locked decisions.  
+Changes to these principles should be deliberate and documented.*
+
 
 Then the framework is already a success.
 
