@@ -1,4 +1,4 @@
-
+use ui::app::MyApp;
 mod ui;
 mod engine;
 mod model;
