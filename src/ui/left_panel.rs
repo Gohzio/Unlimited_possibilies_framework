@@ -1,9 +1,14 @@
 use eframe::egui;
+use std::sync::mpsc::Sender;
 
-use crate::ui::app::PartyMember;
-use super::app::{UiState, LeftTab};
+use crate::engine::protocol::EngineCommand;
+use crate::ui::app::{PartyMember, UiState, LeftTab};
 
-pub fn draw_left_panel(ctx: &egui::Context, ui_state: &mut UiState) {
+pub fn draw_left_panel(
+    ctx: &egui::Context,
+    ui_state: &mut UiState,
+    cmd_tx: &Sender<EngineCommand>,
+) {
     egui::SidePanel::left("left")
         .resizable(false)
         .default_width(180.0)
@@ -20,10 +25,10 @@ pub fn draw_left_panel(ctx: &egui::Context, ui_state: &mut UiState) {
                 match ui_state.left_tab {
                     LeftTab::Settings => {
                         ui.label("UI Scale");
-                        ui.add(egui::Slider::new(
-                            &mut ui_state.ui_scale,
-                            0.75..=2.0,
-                        ));
+                        ui.add(
+                            egui::Slider::new(&mut ui_state.ui_scale, 0.75..=2.0)
+                                .text("Scale"),
+                        );
                     }
 
                     LeftTab::Party => {
@@ -31,7 +36,22 @@ pub fn draw_left_panel(ctx: &egui::Context, ui_state: &mut UiState) {
                     }
 
                     LeftTab::Options => {
-                        ui.label("Options coming soon");
+                        if ui.button("🔌 Connect to LM Studio").clicked() {
+                            let _ = cmd_tx.send(EngineCommand::ConnectToLlm);
+                        }
+
+                        ui.add_space(6.0);
+
+                        let status_color = if ui_state.llm_connected {
+                            egui::Color32::GREEN
+                        } else {
+                            egui::Color32::RED
+                        };
+
+                        ui.label(
+                            egui::RichText::new(&ui_state.llm_status)
+                                .color(status_color),
+                        );
                     }
                 }
             });

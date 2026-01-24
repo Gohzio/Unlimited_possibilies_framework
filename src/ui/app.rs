@@ -148,7 +148,6 @@ impl Default for RightTab {
    UI State
    ========================= */
 
-#[derive(Default)]
 pub struct UiState {
     pub input_text: String,
     pub selected_llm_path: Option<PathBuf>,
@@ -167,6 +166,8 @@ pub struct UiState {
     pub world: WorldDefinition,
     pub character: CharacterDefinition,
     pub party: Vec<PartyMember>,
+    pub llm_connected: bool,
+    pub llm_status: String,
 }
 
 /* ---------- UiState Persistence ---------- */
@@ -223,6 +224,33 @@ impl Default for Theme {
         }
     }
 }
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            input_text: String::new(),
+            selected_llm_path: None,
+            rendered_messages: Vec::new(),
+            snapshot: None,
+
+            new_stat_name: String::new(),
+            new_stat_value: 0,
+
+            ui_scale: 1.0,
+            should_auto_scroll: true,
+
+            left_tab: LeftTab::default(),
+            right_tab: RightTab::default(),
+
+            world: WorldDefinition::default(),
+            character: CharacterDefinition::default(),
+            party: Vec::new(),
+
+            llm_connected: false,
+            llm_status: "Not connected".into(),
+        }
+    }
+}
+
 
 /* =========================
    App
@@ -305,31 +333,40 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         ctx.set_pixels_per_point(self.ui.ui_scale);
 
-        while let Ok(resp) = self.resp_rx.try_recv() {
-            match resp {
-                EngineResponse::FullMessageHistory(msgs) => {
-                    self.ui.rendered_messages = msgs;
-                    self.ui.should_auto_scroll = true;
-                }
-                EngineResponse::NarrativeApplied { report, snapshot } => {
-                    self.ui.snapshot = Some(snapshot);
-                    for a in report.applications {
-                        let t = match a.outcome {
-                            EventApplyOutcome::Applied =>
-                                format!("✔ Applied: {}", a.event.short_name()),
-                            EventApplyOutcome::Rejected { reason } =>
-                                format!("❌ Rejected: {}\n{}", a.event.short_name(), reason),
-                            EventApplyOutcome::Deferred { reason } =>
-                                format!("⚠ Deferred: {}\n{}", a.event.short_name(), reason),
-                        };
-                        self.ui.rendered_messages.push(Message::System(t));
-                    }
-                    self.ui.should_auto_scroll = true;
-                }
-            }
+while let Ok(resp) = self.resp_rx.try_recv() {
+    match resp {
+        EngineResponse::FullMessageHistory(msgs) => {
+            self.ui.rendered_messages = msgs;
+            self.ui.should_auto_scroll = true;
         }
 
-        draw_left_panel(ctx, &mut self.ui);
+        EngineResponse::NarrativeApplied { report, snapshot } => {
+            self.ui.snapshot = Some(snapshot);
+            for a in report.applications {
+                let t = match a.outcome {
+                    EventApplyOutcome::Applied =>
+                        format!("✔ Applied: {}", a.event.short_name()),
+                    EventApplyOutcome::Rejected { reason } =>
+                        format!("❌ Rejected: {}\n{}", a.event.short_name(), reason),
+                    EventApplyOutcome::Deferred { reason } =>
+                        format!("⚠ Deferred: {}\n{}", a.event.short_name(), reason),
+                };
+                self.ui.rendered_messages.push(Message::System(t));
+            }
+            self.ui.should_auto_scroll = true;
+        }
+
+        EngineResponse::LlmConnectionResult { success, message } => {
+            self.ui.llm_connected = success;
+            self.ui.llm_status = message;
+            self.ui.should_auto_scroll = true;
+        }
+    }
+}
+
+
+        draw_left_panel(ctx, &mut self.ui, &self.cmd_tx);
+
         draw_right_panel(ctx, &mut self.ui);
         draw_center_panel(ctx, self);
 

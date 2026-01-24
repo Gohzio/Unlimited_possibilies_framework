@@ -14,16 +14,20 @@ pub enum EngineCommand {
     },
 
     /// Load / switch LLM backend (LM Studio, etc.)
+    ConnectToLlm,
     LoadLlm(PathBuf),
 }
 
 #[derive(Debug)]
 pub enum EngineResponse {
+    FullMessageHistory(Vec<Message>),
     NarrativeApplied {
         report: NarrativeApplyReport,
         snapshot: GameStateSnapshot,
     },
-
-    /// Full chat history to render
-    FullMessageHistory(Vec<Message>),
+    LlmConnectionResult {
+        success: bool,
+        message: String,
+    },
 }
+
