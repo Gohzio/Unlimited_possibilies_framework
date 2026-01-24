@@ -1,18 +1,19 @@
-#[derive(Clone)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RoleplaySpeaker {
     Narrator,
-    PartyMember,
     Npc,
+    PartyMember,
 }
 
-#[derive(Clone)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
     User(String),
-    Roleplay {
-        speaker: RoleplaySpeaker,
-        text: String,
-    },
+    Roleplay { speaker: RoleplaySpeaker, text: String },
     System(String),
 }
+
 
 

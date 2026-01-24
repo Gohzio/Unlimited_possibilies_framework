@@ -1,11 +1,11 @@
 use eframe::egui;
 
 use super::app::{
-    editable_list, CharacterDefinition, RightTab, UiState, WorldDefinition,
+    editable_list, RightTab, UiState, WorldDefinition,
 };
 
 pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState) {
-    egui::SidePanel::right("right")
+    egui::SidePanel::right("right_panel")
         .resizable(true)
         .default_width(340.0)
         .min_width(260.0)
@@ -20,7 +20,7 @@ pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState) {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 match ui_state.right_tab {
                     RightTab::Player => draw_character(ui, ui_state),
-                    RightTab::World => draw_world(ui, &mut ui_state.world),
+                    RightTab::World => draw_world(ui, ui_state),
                 }
             });
         });
@@ -31,9 +31,32 @@ pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState) {
    ========================= */
 
 fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
-    let c = &mut state.character;
-
     ui.heading("Character");
+
+    // ---- buttons FIRST (no character borrow yet)
+    let mut do_save = false;
+    let mut do_load = false;
+
+    ui.horizontal(|ui| {
+        if ui.button("💾 Save Character").clicked() {
+            do_save = true;
+        }
+        if ui.button("📂 Load Character").clicked() {
+            do_load = true;
+        }
+    });
+
+    if do_save {
+        state.save_character();
+    }
+    if do_load {
+        state.load_character();
+    }
+
+    ui.separator();
+
+    // ---- NOW borrow character
+    let c = &mut state.character;
 
     ui.label("Name");
     ui.text_edit_singleline(&mut c.name);
@@ -54,7 +77,6 @@ fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
                 ui.horizontal(|ui| {
                     ui.label(&key);
                     ui.add(egui::DragValue::new(value).speed(1));
-
                     if ui.small_button("❌").clicked() {
                         to_remove = Some(key.clone());
                     }
@@ -78,7 +100,6 @@ fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
 
             if ui.button("Add").clicked() {
                 let name = state.new_stat_name.trim();
-
                 if !name.is_empty() && !c.stats.contains_key(name) {
                     c.stats.insert(name.to_string(), state.new_stat_value);
                     state.new_stat_name.clear();
@@ -93,26 +114,39 @@ fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
     list(ui, "Inventory", &c.inventory);
 }
 
-fn list(ui: &mut egui::Ui, label: &str, items: &Vec<String>) {
-    ui.collapsing(label, |ui| {
-        if items.is_empty() {
-            ui.label("None");
-        } else {
-            for i in items {
-                ui.label(format!("• {i}"));
-            }
-        }
-    });
-}
 
 /* =========================
    World UI
    ========================= */
 
-fn draw_world(ui: &mut egui::Ui, w: &mut WorldDefinition) {
+fn draw_world(ui: &mut egui::Ui, state: &mut UiState) {
     ui.heading("World Definition");
 
+    // ---- buttons FIRST
+    let mut do_save = false;
+    let mut do_load = false;
+
+    ui.horizontal(|ui| {
+        if ui.button("💾 Save World").clicked() {
+            do_save = true;
+        }
+        if ui.button("📂 Load World").clicked() {
+            do_load = true;
+        }
+    });
+
+    if do_save {
+        state.save_world();
+    }
+    if do_load {
+        state.load_world();
+    }
+
     ui.separator();
+
+    // ---- NOW borrow world
+    let w = &mut state.world;
+
     ui.label("Title");
     ui.text_edit_singleline(&mut w.title);
 
@@ -122,7 +156,6 @@ fn draw_world(ui: &mut egui::Ui, w: &mut WorldDefinition) {
     ui.label("Author");
     ui.text_edit_singleline(&mut w.author);
 
-    ui.separator();
     ui.collapsing("Description", |ui| {
         ui.text_edit_multiline(&mut w.description);
     });
@@ -135,22 +168,18 @@ fn draw_world(ui: &mut egui::Ui, w: &mut WorldDefinition) {
         editable_list(ui, &mut w.tone, "Add tone");
     });
 
-    ui.separator();
     ui.collapsing("Narration & Style", |ui| {
         ui.label("Narrator Role");
         ui.text_edit_multiline(&mut w.narrator_role);
 
         ui.separator();
-        ui.label("Style Guidelines");
         editable_list(ui, &mut w.style_guidelines, "Add guideline");
     });
 
-    ui.separator();
     ui.collapsing("Opening Message", |ui| {
         ui.text_edit_multiline(&mut w.opening_message);
     });
 
-    ui.separator();
     ui.collapsing("Hard Constraints", |ui| {
         ui.label("Must NOT");
         editable_list(ui, &mut w.must_not, "Add restriction");
@@ -158,5 +187,22 @@ fn draw_world(ui: &mut egui::Ui, w: &mut WorldDefinition) {
         ui.separator();
         ui.label("Must ALWAYS");
         editable_list(ui, &mut w.must_always, "Add rule");
+    });
+}
+
+
+/* =========================
+   Helpers
+   ========================= */
+
+fn list(ui: &mut egui::Ui, label: &str, items: &Vec<String>) {
+    ui.collapsing(label, |ui| {
+        if items.is_empty() {
+            ui.label("None");
+        } else {
+            for i in items {
+                ui.label(format!("• {i}"));
+            }
+        }
     });
 }

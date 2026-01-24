@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::fs;
 
 use super::left_panel::draw_left_panel;
 use super::center_panel::draw_center_panel;
@@ -14,6 +15,7 @@ use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::model::event_result::EventApplyOutcome;
 use crate::model::game_state::GameStateSnapshot;
 use crate::model::message::{Message, RoleplaySpeaker};
+use crate::model::game_context::GameContext;
 
 /* =========================
    World Definition
@@ -93,6 +95,27 @@ impl Default for CharacterDefinition {
 }
 
 /* =========================
+   Party
+   ========================= */
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartyMember {
+    pub name: String,
+    pub role: String,
+    pub notes: String,
+}
+
+impl Default for PartyMember {
+    fn default() -> Self {
+        Self {
+            name: "New Companion".into(),
+            role: "Companion".into(),
+            notes: "Describe this character.".into(),
+        }
+    }
+}
+
+/* =========================
    Tabs
    ========================= */
 
@@ -131,6 +154,7 @@ pub struct UiState {
     pub selected_llm_path: Option<PathBuf>,
     pub rendered_messages: Vec<Message>,
     pub snapshot: Option<GameStateSnapshot>,
+
     pub new_stat_name: String,
     pub new_stat_value: i32,
 
@@ -142,6 +166,39 @@ pub struct UiState {
 
     pub world: WorldDefinition,
     pub character: CharacterDefinition,
+    pub party: Vec<PartyMember>,
+}
+
+/* ---------- UiState Persistence ---------- */
+
+impl UiState {
+    pub fn save_world(&self) {
+        if let Ok(json) = serde_json::to_string_pretty(&self.world) {
+            let _ = fs::write("world.json", json);
+        }
+    }
+
+    pub fn load_world(&mut self) {
+        if let Ok(data) = fs::read_to_string("world.json") {
+            if let Ok(world) = serde_json::from_str(&data) {
+                self.world = world;
+            }
+        }
+    }
+
+    pub fn save_character(&self) {
+        if let Ok(json) = serde_json::to_string_pretty(&self.character) {
+            let _ = fs::write("character.json", json);
+        }
+    }
+
+    pub fn load_character(&mut self) {
+        if let Ok(data) = fs::read_to_string("character.json") {
+            if let Ok(character) = serde_json::from_str(&data) {
+                self.character = character;
+            }
+        }
+    }
 }
 
 /* =========================
@@ -200,7 +257,20 @@ impl MyApp {
         }
     }
 
-    
+    pub fn send_command(&self, cmd: EngineCommand) {
+        let _ = self.cmd_tx.send(cmd);
+    }
+
+    pub fn build_game_context(&self) -> GameContext {
+        GameContext {
+            world: self.ui.world.clone(),
+            player: self.ui.character.clone(),
+            party: self.ui.party.clone(),
+            history: self.ui.rendered_messages.clone(),
+            snapshot: self.ui.snapshot.clone(),
+        }
+    }
+
     pub fn draw_message(&self, ui: &mut egui::Ui, msg: &Message) {
         let (bg, right, text) = match msg {
             Message::User(t) => (self.theme.user, true, format!("You: {t}")),
@@ -214,11 +284,6 @@ impl MyApp {
             }
             Message::System(t) => (egui::Color32::DARK_GRAY, false, t.clone()),
         };
-impl MyApp {
-    pub fn send_command(&self, cmd: EngineCommand) {
-        let _ = self.cmd_tx.send(cmd);
-    }
-}
 
         ui.add_space(6.0);
 
@@ -267,7 +332,6 @@ impl eframe::App for MyApp {
         draw_left_panel(ctx, &mut self.ui);
         draw_right_panel(ctx, &mut self.ui);
         draw_center_panel(ctx, self);
-
 
         self.ui.should_auto_scroll = false;
     }

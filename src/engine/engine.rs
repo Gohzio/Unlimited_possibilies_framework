@@ -10,11 +10,12 @@ use crate::model::event_result::{
 use crate::model::internal_game_state::InternalGameState;
 use crate::model::message::{Message, RoleplaySpeaker};
 use crate::model::narrative_event::NarrativeEvent;
-
+use crate::model::game_context::GameContext;
 
 pub struct Engine {
     rx: Receiver<EngineCommand>,
     tx: Sender<EngineResponse>,
+
     messages: Vec<Message>,
     game_state: InternalGameState,
 }
@@ -35,62 +36,76 @@ impl Engine {
     pub fn run(&mut self) {
         while let Ok(cmd) = self.rx.recv() {
             match cmd {
-                EngineCommand::UserInput(text) => {
+                /* =========================
+                   Player input (NEW PATH)
+                   ========================= */
+
+                EngineCommand::SubmitPlayerInput { text, context } => {
+                    // 1. Record user message
                     self.messages.push(Message::User(text.clone()));
+
+                    // 2. TEMP narrator echo (replace with LLM later)
                     self.messages.push(Message::Roleplay {
                         speaker: RoleplaySpeaker::Narrator,
-                        text: format!("Echoing back: {}", text),
+                        text: format!(
+                            "Engine received {} stats and {} party members.",
+                            context.player.stats.len(),
+                            context.party.len()
+                        ),
                     });
 
+                    // 3. Respond with full history
                     let _ = self.tx.send(
                         EngineResponse::FullMessageHistory(self.messages.clone())
                     );
                 }
 
-EngineCommand::LoadLlm(path) => {
-    self.messages.push(Message::System(format!(
-        "Loaded LLM at: {}",
-        path.display()
-    )));
+                /* =========================
+                   Load LLM (existing path)
+                   ========================= */
 
-    // TEMP: fake LLM JSON output
-    let fake_llm_json = r#"
-    [
-      {
-        "type": "grant_power",
-        "id": "fireball",
-        "name": "Fireball",
-        "description": "Throws a ball of fire"
-      }
-    ]
-    "#;
+                EngineCommand::LoadLlm(path) => {
+                    self.messages.push(Message::System(format!(
+                        "Loaded LLM at: {}",
+                        path.display()
+                    )));
 
-    let events = crate::model::llm_decode::decode_llm_events(fake_llm_json)
-        .expect("LLM JSON should decode");
-    println!("Decoded LLM events: {:?}", events);
+                    // TEMP: fake LLM JSON output
+                    let fake_llm_json = r#"
+                    [
+                      {
+                        "type": "grant_power",
+                        "id": "fireball",
+                        "name": "Fireball",
+                        "description": "Throws a ball of fire"
+                      }
+                    ]
+                    "#;
 
-    let mut applications = Vec::new();
+                    let events = crate::model::llm_decode::decode_llm_events(fake_llm_json)
+                        .expect("LLM JSON should decode");
 
-    for event in events {
-        let outcome = apply_event(&mut self.game_state, event.clone());
-        applications.push(EventApplication {
-            event,
-            outcome,
-        });
-    }
+                    let mut applications = Vec::new();
 
-    let report = NarrativeApplyReport { applications };
-    let snapshot = (&self.game_state).into();
+                    for event in events {
+                        let outcome = apply_event(&mut self.game_state, event.clone());
+                        applications.push(EventApplication {
+                            event,
+                            outcome,
+                        });
+                    }
 
-    let _ = self.tx.send(
-        EngineResponse::NarrativeApplied {
-            report,
-            snapshot,
-        }
-    );
-}   
+                    let report = NarrativeApplyReport { applications };
+                    let snapshot = (&self.game_state).into();
+
+                    let _ = self.tx.send(
+                        EngineResponse::NarrativeApplied {
+                            report,
+                            snapshot,
+                        }
+                    );
+                }
             }
         }
     }
 }
-
