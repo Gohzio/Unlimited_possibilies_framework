@@ -1,0 +1,20 @@
+{
+  "name": "Gohzio",
+  "class": "Tank",
+  "background": "Describe your character’s origin, motivations, and past.",
+  "stats": {
+    "intelligence": 10,
+    "Lust": 10,
+    "luck": 10,
+    "strength": 15,
+    "constitution": 15,
+    "agility": 14
+  },
+  "powers": [
+    "Basic combat training"
+  ],
+  "features": [],
+  "inventory": [
+    "Simple clothing"
+  ]
+}

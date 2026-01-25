@@ -1,0 +1,28 @@
+{
+  "title": "Elysium Prime",
+  "world_id": "world_001",
+  "author": "Your name",
+  "description": "Elysium Prime is an immense world, approximately 139,820 times the mass of Earth, with a diameter roughly equal to Jupiter's. Its surface area spans over 65 billion square kilometers, consisting of five major continents and countless smaller islands scattered across vast oceans that cover nearly 75% of its surface.",
+  "themes": [
+    "Power",
+    "Legacy"
+  ],
+  "tone": [
+    "Serious",
+    "Epic"
+  ],
+  "narrator_role": "Act as the narrator and all NPCs. Never control the player.",
+  "style_guidelines": [
+    "Show, don’t tell",
+    "Stay immersive"
+  ],
+  "opening_message": "The adventure begins at the edge of the known world…",
+  "must_not": [
+    "Do not control the player character",
+    "Do not break immersion"
+  ],
+  "must_always": [
+    "Respect established lore",
+    "Use structured events for state changes"
+  ]
+}
