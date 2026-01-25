@@ -3,12 +3,11 @@
   "class": "Tank",
   "background": "Describe your character’s origin, motivations, and past.",
   "stats": {
-    "intelligence": 10,
-    "Lust": 10,
-    "luck": 10,
+    "agility": 14,
     "strength": 15,
+    "luck": 10,
     "constitution": 15,
-    "agility": 14
+    "intelligence": 10
   },
   "powers": [
     "Basic combat training"
