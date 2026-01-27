@@ -25,10 +25,13 @@ pub fn draw_left_panel(
                 match ui_state.left_tab {
                     LeftTab::Settings => {
                         ui.label("UI Scale");
-                        ui.add(
-                            egui::Slider::new(&mut ui_state.ui_scale, 0.75..=2.0)
-                                .text("Scale"),
-                        );
+                        if ui.add(
+    egui::Slider::new(&mut ui_state.ui_scale, 0.75..=2.0)
+        .text("Scale"),
+).changed() {
+    ui_state.save_config();
+}
+
                     }
 
                     LeftTab::Party => {

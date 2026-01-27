@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::fs;
+use rfd::FileDialog;
 
 use super::left_panel::draw_left_panel;
 use super::center_panel::draw_center_panel;
@@ -174,33 +175,91 @@ pub struct UiState {
 
 impl UiState {
     pub fn save_world(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(&self.world) {
-            let _ = fs::write("world.json", json);
+        if let Some(path) = FileDialog::new()
+            .set_title("Save World")
+            .add_filter("World JSON", &["json"])
+            .set_file_name("world.json")
+            .save_file()
+        {
+            if let Ok(json) = serde_json::to_string_pretty(&self.world) {
+                let _ = fs::write(path, json);
+            }
         }
     }
 
     pub fn load_world(&mut self) {
-        if let Ok(data) = fs::read_to_string("world.json") {
-            if let Ok(world) = serde_json::from_str(&data) {
-                self.world = world;
+        if let Some(path) = FileDialog::new()
+            .set_title("Load World")
+            .add_filter("World JSON", &["json"])
+            .pick_file()
+        {
+            if let Ok(data) = fs::read_to_string(path) {
+                if let Ok(world) = serde_json::from_str(&data) {
+                    self.world = world;
+                }
             }
         }
     }
 
     pub fn save_character(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(&self.character) {
-            let _ = fs::write("character.json", json);
+        if let Some(path) = FileDialog::new()
+            .set_title("Save Character")
+            .add_filter("Character JSON", &["json"])
+            .set_file_name("character.json")
+            .save_file()
+        {
+            if let Ok(json) = serde_json::to_string_pretty(&self.character) {
+                let _ = fs::write(path, json);
+            }
         }
     }
 
     pub fn load_character(&mut self) {
-        if let Ok(data) = fs::read_to_string("character.json") {
-            if let Ok(character) = serde_json::from_str(&data) {
-                self.character = character;
+        if let Some(path) = FileDialog::new()
+            .set_title("Load Character")
+            .add_filter("Character JSON", &["json"])
+            .pick_file()
+        {
+            if let Ok(data) = fs::read_to_string(path) {
+                if let Ok(character) = serde_json::from_str(&data) {
+                    self.character = character;
+                }
             }
         }
     }
+        pub fn load_config(&mut self) {
+        let path = config_path();
+        if let Ok(data) = fs::read_to_string(path) {
+            if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
+                self.ui_scale = cfg.ui_scale;
+            }
+        }
+    }
+
+    pub fn save_config(&self) {
+        let cfg = AppConfig {
+            ui_scale: self.ui_scale,
+        };
+
+        if let Ok(json) = serde_json::to_string_pretty(&cfg) {
+            let _ = fs::write(config_path(), json);
+        }
+    }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub ui_scale: f32,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            ui_scale: 1.0,
+        }
+    }
+}
+
 
 /* =========================
    Theme
@@ -274,15 +333,21 @@ impl MyApp {
             engine.run();
         });
 
-        Self {
-            ui: UiState {
-                ui_scale: 1.0,
-                ..Default::default()
-            },
-            theme: Theme::default(),
-            cmd_tx,
-            resp_rx,
-        }
+let mut ui = UiState {
+    ui_scale: 1.0,
+    ..Default::default()
+};
+
+// 👇 THIS was missing
+ui.load_config();
+
+Self {
+    ui,
+    theme: Theme::default(),
+    cmd_tx,
+    resp_rx,
+}
+
     }
 
     pub fn send_command(&self, cmd: EngineCommand) {
@@ -417,4 +482,11 @@ fn bubble(ui: &mut egui::Ui, color: egui::Color32, text: &str) {
         .show(ui, |ui| {
             ui.label(egui::RichText::new(text).color(egui::Color32::WHITE));
         });
+}
+fn config_path() -> PathBuf {
+    let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    path.push("UnlimitedRPG");
+    fs::create_dir_all(&path).ok();
+    path.push("config.json");
+    path
 }
