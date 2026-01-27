@@ -3,6 +3,7 @@ use crate::model::{
     narrative_event::NarrativeEvent,
 };
 use crate::model::event_result::EventApplyOutcome;
+/// Apply a NarrativeEvent to the InternalGameState, returning the outcome
 
 pub fn apply_event(
     state: &mut InternalGameState,
@@ -68,6 +69,22 @@ pub fn apply_event(
                 ),
             }
         }
+        NarrativeEvent::Drop { item, quantity, .. } => {
+    apply_event(
+        state,
+        NarrativeEvent::AddItem {
+            item_id: item,
+            quantity: quantity.unwrap_or(1) as u32,
+        },
+    )
+}
+NarrativeEvent::Combat { .. } => {
+    // Combat is narrative only (for now)
+    EventApplyOutcome::Deferred {
+        reason: "Combat is handled narratively".to_string(),
+    }
+}
+
 
         _ => EventApplyOutcome::Deferred {
             reason: "Event not yet implemented".into(),

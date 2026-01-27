@@ -17,6 +17,8 @@ impl PromptBuilder {
         prompt.push_str(
             "You are the narrator and all non-player characters in a roleplaying game.\n\n\
 Rules:\n\
+- when loot appears in the world, you MUST use a DROP event to represent it.\n\
+- Do not use add_item unless the player explicitly picks up an item.\n\
 - You must never control or describe actions taken by the player beyond what the player explicitly states.\n\
 - You must never change game state directly.\n\
 - All game state changes must be expressed ONLY through structured EVENTS.\n\

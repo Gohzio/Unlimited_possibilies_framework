@@ -1,138 +1,178 @@
-# Narrative Engine – Roadmap & Architecture
+# 🜂 Narrative Engine RPG 🜂  
+*A local-first, LLM-powered roleplaying engine with persistent worlds*
 
-This project is a deterministic narrative RPG engine where **the engine owns truth**  
-and an external LLM acts purely as a constrained narrator.
-
-The LLM is *not authoritative*.  
-All state changes are validated, applied, or rejected by the engine.
-
----
-
-## ✅ Locked Architectural Decisions
-
-- The engine **does not load models**
-- LLM inference runs **externally**
-- Communication uses an **OpenAI-compatible HTTP API**
-- **LM Studio** is the primary supported runtime
-- A **single LLM** is sufficient (engine enforces constraints)
+> **Status:** Actively evolving ⚙️  
+> **Mood:** Dangerous ideas, rapid iteration  
+> **Core Goal:** Let an LLM act as a world, not a chatbot.
 
 ---
 
-## 🧭 Current Development Roadmap
+## ✨ What This Is
 
-### 1️⃣ Lock LLM Runtime & API
-- [x] Use **LM Studio** as the reference implementation
-- [x] OpenAI-compatible `/v1/chat/completions` schema
-- [x] HTTP-based, replaceable backend (LM Studio / Ollama / OpenAI)
-- [x] No `.gguf` loading inside the engine
+A desktop RPG engine built in **Rust + egui**, designed to:
+
+- Treat the LLM as a **narrative actor**
+- Maintain a **persistent internal world state**
+- Separate **story intent** from **mechanical consequences**
+- Allow deep player/world customization via **JSON**
+- Stay fully **offline / local-first** (LM Studio compatible)
+
+This is *not* a chat UI.  
+It’s a **story engine**.
 
 ---
 
-### 2️⃣ Complete Character / World JSON Structure
-- [x] Lock `WorldDefinition` schema
-- [x] Five sections:
-  - Meta
-  - World
+## 🧭 Roadmap / TODO List
+
+### 🧠 Core Narrative Engine
+- [ ] **Expand narrative event system**
+  - [ ] `combat`
+  - [ ] `dialogue`
+  - [ ] `travel`
+  - [ ] `rest`
+  - [ ] `spawn_loot` (currently missing ❌)
+  - [ ] `currency_change`
+  - [ ] `npc_spawn`
+  - [ ] `npc_join_party`
+  - [ ] `npc_leave_party`
+  - [ ] `relationship_change`
+- [ ] Graceful handling of **unknown / future events**
+- [ ] Separate **narrative-only** vs **state-mutating** events cleanly
+
+---
+
+### 🎭 Narrative Presentation
+- [ ] **Speaker-based text colors**
+  - Player
   - Narrator
-  - Constraints
-  - Output
-- [x] Player-editable via UI **or** JSON upload
-- [x] Engine treats this as authoritative configuration
+  - NPCs
+  - System
+- [ ] *Italic formatting for emotions / internal thoughts*
+- [ ] Better spacing & flow for long narrative passages
+- [ ] Remove empty message artifacts from partial LLM outputs
 
 ---
 
-### 3️⃣ Define LLMRequest + LLMResponse
-- [ ] Define engine-facing request struct
-- [ ] Include:
-  - Prompt text
-  - Model name
-  - Temperature / top-p (later)
-- [ ] Define response struct:
-  - Raw text
-  - Finish reason
-  - Token usage (optional)
-- [ ] Keep interface backend-agnostic
+### 👤 Player Creation & Editing
+- [ ] Fix Player Creation Panel
+  - [ ] Edit **stats**
+  - [ ] Edit **powers**
+  - [ ] Edit **features**
+  - [ ] Edit **inventory**
+- [ ] Remove reliance on **manual JSON editing**
+- [ ] Live validation of player config
+- [ ] Preview player summary before starting session
 
 ---
 
-### 4️⃣ 🧱 Prompt Builder (WorldDefinition → Prompt)
-- [ ] Render `WorldDefinition` into deterministic system prompt
-- [ ] Inject:
-  - World rules
-  - Narrator role
-  - Style guidelines
-  - Hard constraints (`must_not`, `must_always`)
-- [ ] Append:
-  - Current world state snapshot
-  - Recent message history
-  - Player input
-- [ ] Explicit output rules (machine-readable)
+### 🧑‍🤝‍🧑 Party System
+- [ ] Allow NPCs to be added as **party members**
+- [ ] Party tab auto-updates from narrative events
+- [ ] Expand Party tab UI
+- [ ] Button to generate **Text → Image prompt** per party member
+  - (For use in external image generation tools)
+- [ ] Individual party member sheets
+- [ ] Party-wide status effects
 
 ---
 
-### 5️⃣ 🔍 Output Parser + Validator
-- [ ] Split narration vs events
-- [ ] Parse structured event output (JSON)
-- [ ] Validate:
-  - Schema correctness
-  - Stat existence
-  - Rule violations
-- [ ] Reject / defer invalid events
-- [ ] Never trust raw LLM output
+### 📜 World & NPC Management
+- [ ] **Local NPC Tab** (Left panel)
+  - [ ] Persistent NPCs not in party
+  - [ ] Relationship tracking
+  - [ ] Known locations & factions
+- [ ] World state auto-expands as LLM introduces new concepts
 
 ---
 
-### 6️⃣ 🔄 Hook Into `EngineCommand::UserInput`
-- [ ] On user input:
-  - Build prompt
-  - Send LLM request
-  - Receive response
-- [ ] Parse output
-- [ ] Apply validated events
-- [ ] Emit:
-  - Renderable narration
-  - System feedback for rejected actions
+### 🎒 Items, Loot & Economy
+- [ ] Functional **loot drops**
+- [ ] Currency system
+  - [ ] Gold / credits / setting-based currency
+  - [ ] Add / remove / spend events
+- [ ] Inventory stacking & descriptions
+- [ ] Item rarity & flavor text
 
 ---
 
-### 7️⃣ 🧪 Test With a Dummy Model
-- [ ] Stub LLM client returning fixed responses
-- [ ] Test:
-  - Happy path
-  - Invalid JSON
-  - Rule-breaking events
-- [ ] Ensure engine never panics on bad output
-- [ ] Confirm UI rendering works without live inference
+### 📈 Progression
+- [ ] XP bar
+- [ ] Level-up system
+- [ ] Level-up events emitted by LLM
+- [ ] Stat growth & perk unlocks
 
 ---
 
-## 🧠 Core Philosophy
-
-> **The engine is law.  
-> The LLM is a storyteller.  
-> The player is always in control.**
-
-This design ensures:
-- Deterministic gameplay
-- Replaceable AI backends
-- Strong modding potential
-- No model lock-in
-- Long-term maintainability
+### 💾 Persistence
+- [ ] **Save Session** button
+- [ ] Load previous sessions
+- [ ] Autosave checkpoints
+- [ ] Session metadata (last played, world name, player name)
 
 ---
 
-## 🚀 Future (Not Yet Implemented)
-
-- Multi-character narrator styles
-- Streaming token support
-- Per-world output formatting
-- Advanced prompt debugging tools
-- Saveable prompt presets
+### 🧪 LLM Integration
+- [ ] LLM-driven **power creation**
+- [ ] LLM-assisted item descriptions
+- [ ] LLM-assisted NPC backstories
+- [ ] Better prompt contracts for dual-output:
+  - Narrative text
+  - Structured events JSON
 
 ---
 
-*This README reflects locked decisions.  
-Changes to these principles should be deliberate and documented.*
+### 🖼️ Immersion Features
+- [ ] Embed JSON metadata into uploaded **PNG images**
+  - Player portraits
+  - NPC portraits
+  - World maps
+- [ ] Read embedded metadata back into the engine
+- [ ] Visual identity tied directly to game state
+
+---
+
+### 🖥️ UI / UX Polish
+- [ ] Confine center text strictly to center panel
+- [ ] Copy/paste support everywhere (✅ mostly there)
+- [ ] Font scaling **independent of UI scaling**
+- [ ] Move settings/options to **compact icon buttons**
+- [ ] Reduce visual noise
+- [ ] Improve scroll behavior in long sessions
+
+---
+
+## 🧱 Architectural Principles
+
+- **Narrative first, mechanics second**
+- **LLM may suggest — engine decides**
+- **Never crash on creativity**
+- **Everything serializable**
+- **Local-first, inspectable state**
+
+---
+
+## 🛠️ Tech Stack
+
+- **Rust**
+- **eframe / egui**
+- **Serde (JSON-first design)**
+- **LM Studio (local LLMs)**
+
+---
+
+## 🚀 Long-Term Vision
+
+This engine should eventually be able to:
+
+- Run full tabletop-style campaigns
+- Act as a solo GM
+- Support multiple worlds & genres
+- Become a toolkit for narrative experimentation
+
+---
+
+> *“If the LLM surprises the engine, the engine should learn — not panic.”*
+
 
 | Section                | Player             | Engine    | LLM  |
 | ---------------------- | -----------------  | --------  | ---  |

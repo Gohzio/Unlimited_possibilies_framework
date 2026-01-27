@@ -479,8 +479,8 @@ pub fn editable_list(ui: &mut egui::Ui, items: &mut Vec<String>, hint: &str) {
 fn bubble(ui: &mut egui::Ui, color: egui::Color32, text: &str) {
     egui::Frame::none()
         .fill(color)
-        .rounding(egui::Rounding::same(8.0))
-        .inner_margin(egui::Margin::symmetric(10.0, 6.0))
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::symmetric(10, 6))
         .show(ui, |ui| {
             ui.label(egui::RichText::new(text).color(egui::Color32::WHITE));
         });
