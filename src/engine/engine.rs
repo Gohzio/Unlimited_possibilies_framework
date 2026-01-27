@@ -63,16 +63,53 @@ impl Engine {
                         }
                     };
 
-                    // 4. Split narrative vs events
-                    let (narrative, _events_json) =
-                        llm_output.split_once("EVENTS:")
-                            .unwrap_or((&llm_output, ""));
+                    // 4. Split NARRATIVE vs EVENTS
+                    let (narrative, events_json) =
+                        llm_output
+                            .split_once("EVENTS:")
+                            .unwrap_or((&llm_output, "[]"));
 
                     // 5. Parse narrative into structured messages
                     let new_messages = parse_narrative(narrative);
                     self.messages.extend(new_messages);
 
-                    // 6. Send updated messages to UI
+                    // 6. Decode EVENTS JSON
+                    let events = match crate::model::llm_decode::decode_llm_events(events_json) {
+                        Ok(events) => events,
+                        Err(err) => {
+                            self.messages.push(Message::System(format!(
+                                "Failed to parse EVENTS: {}",
+                                err
+                            )));
+                            Vec::new()
+                        }
+                    };
+
+                    // 7. Apply events to internal game state
+                    let mut applications = Vec::new();
+
+                    for event in events {
+                        let outcome = apply_event(&mut self.game_state, event.clone());
+                        applications.push(EventApplication {
+                            event,
+                            outcome,
+                        });
+                    }
+
+                    // 8. Send state mutation report + snapshot
+                    if !applications.is_empty() {
+                        let report = NarrativeApplyReport { applications };
+                        let snapshot = (&self.game_state).into();
+
+                        let _ = self.tx.send(
+                            EngineResponse::NarrativeApplied {
+                                report,
+                                snapshot,
+                            }
+                        );
+                    }
+
+                    // 9. Update UI with full message history
                     let _ = self.tx.send(
                         EngineResponse::FullMessageHistory(self.messages.clone())
                     );
