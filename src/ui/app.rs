@@ -187,19 +187,21 @@ impl UiState {
         }
     }
 
-    pub fn load_world(&mut self) {
-        if let Some(path) = FileDialog::new()
-            .set_title("Load World")
-            .add_filter("World JSON", &["json"])
-            .pick_file()
-        {
-            if let Ok(data) = fs::read_to_string(path) {
-                if let Ok(world) = serde_json::from_str(&data) {
-                    self.world = world;
-                }
+    pub fn load_world_from_dialog() -> Option<WorldDefinition> {
+    if let Some(path) = FileDialog::new()
+        .set_title("Load World")
+        .add_filter("World JSON", &["json"])
+        .pick_file()
+    {
+        if let Ok(data) = fs::read_to_string(path) {
+            if let Ok(world) = serde_json::from_str(&data) {
+                return Some(world);
             }
         }
     }
+    None
+}
+
 
     pub fn save_character(&self) {
         if let Some(path) = FileDialog::new()
@@ -432,7 +434,7 @@ while let Ok(resp) = self.resp_rx.try_recv() {
 
         draw_left_panel(ctx, &mut self.ui, &self.cmd_tx);
 
-        draw_right_panel(ctx, &mut self.ui);
+        draw_right_panel(ctx, &mut self.ui, &self.cmd_tx);
         draw_center_panel(ctx, self);
 
         self.ui.should_auto_scroll = false;

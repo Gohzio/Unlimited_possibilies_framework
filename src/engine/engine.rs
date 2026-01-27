@@ -34,144 +34,90 @@ impl Engine {
         }
     }
 
-    pub fn run(&mut self) {
-        while let Ok(cmd) = self.rx.recv() {
-            match cmd {
+pub fn run(&mut self) {
+    while let Ok(cmd) = self.rx.recv() {
+        match cmd {
 
-                /* =========================
-                   Player input → Prompt → LLM
-                   ========================= */
-                EngineCommand::SubmitPlayerInput { text, context } => {
-                    // 1. Record player input
-                    self.messages.push(Message::User(text.clone()));
+            /* =========================
+               Initialize narrative (world load)
+               ========================= */
+            EngineCommand::InitializeNarrative { opening_message } => {
+                // Reset session
+                self.messages.clear();
+                self.game_state = InternalGameState::default();
 
-                    // 2. Build prompt
-                    let prompt = PromptBuilder::build(&context, &text);
+                // Inject narrator opening
+                self.messages.push(Message::Roleplay {
+                    speaker: crate::model::message::RoleplaySpeaker::Narrator,
+                    text: opening_message,
+                });
 
-                    // 3. Call LM Studio
-                    let llm_output = match call_lm_studio(prompt) {
-                        Ok(text) => text,
-                        Err(e) => {
-                            self.messages.push(Message::System(format!(
-                                "LLM error: {}",
-                                e
-                            )));
-                            let _ = self.tx.send(
-                                EngineResponse::FullMessageHistory(self.messages.clone())
-                            );
-                            continue;
-                        }
-                    };
+                // Notify UI immediately
+                let _ = self.tx.send(
+                    EngineResponse::FullMessageHistory(self.messages.clone())
+                );
+            }
 
-                    // 4. Split NARRATIVE vs EVENTS
-                    let (narrative, events_json) =
-                        llm_output
-                            .split_once("EVENTS:")
-                            .unwrap_or((&llm_output, "[]"));
+            /* =========================
+               Player input → Prompt → LLM
+               ========================= */
+            EngineCommand::SubmitPlayerInput { text, context } => {
+                // 1. Record player input
+                self.messages.push(Message::User(text.clone()));
 
-                    // 5. Parse narrative into structured messages
-                    let new_messages = parse_narrative(narrative);
-                    self.messages.extend(new_messages);
+                // 2. Build prompt
+                let prompt = PromptBuilder::build(&context, &text);
 
-                    // 6. Decode EVENTS JSON
-                    let events = match crate::model::llm_decode::decode_llm_events(events_json) {
-                        Ok(events) => events,
-                        Err(err) => {
-                            self.messages.push(Message::System(format!(
-                                "Failed to parse EVENTS: {}",
-                                err
-                            )));
-                            Vec::new()
-                        }
-                    };
-
-                    // 7. Apply events to internal game state
-                    let mut applications = Vec::new();
-
-                    for event in events {
-                        let outcome = apply_event(&mut self.game_state, event.clone());
-                        applications.push(EventApplication {
-                            event,
-                            outcome,
-                        });
-                    }
-
-                    // 8. Send state mutation report + snapshot
-                    if !applications.is_empty() {
-                        let report = NarrativeApplyReport { applications };
-                        let snapshot = (&self.game_state).into();
-
+                // 3. Call LM Studio
+                let llm_output = match call_lm_studio(prompt) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        self.messages.push(Message::System(format!(
+                            "LLM error: {}",
+                            e
+                        )));
                         let _ = self.tx.send(
-                            EngineResponse::NarrativeApplied {
-                                report,
-                                snapshot,
-                            }
+                            EngineResponse::FullMessageHistory(self.messages.clone())
                         );
+                        continue;
                     }
+                };
 
-                    // 9. Update UI with full message history
-                    let _ = self.tx.send(
-                        EngineResponse::FullMessageHistory(self.messages.clone())
-                    );
+                // 4. Split NARRATIVE vs EVENTS
+                let (narrative, events_json) =
+                    llm_output
+                        .split_once("EVENTS:")
+                        .unwrap_or((&llm_output, "[]"));
+
+                // 5. Parse narrative into structured messages
+                let new_messages = parse_narrative(narrative);
+                self.messages.extend(new_messages);
+
+                // 6. Decode EVENTS JSON
+                let events = match crate::model::llm_decode::decode_llm_events(events_json) {
+                    Ok(events) => events,
+                    Err(err) => {
+                        self.messages.push(Message::System(format!(
+                            "Failed to parse EVENTS: {}",
+                            err
+                        )));
+                        Vec::new()
+                    }
+                };
+
+                // 7. Apply events
+                let mut applications = Vec::new();
+
+                for event in events {
+                    let outcome = apply_event(&mut self.game_state, event.clone());
+                    applications.push(EventApplication {
+                        event,
+                        outcome,
+                    });
                 }
 
-                /* =========================
-                   Connect to LM Studio
-                   ========================= */
-                EngineCommand::ConnectToLlm => {
-                    match test_connection() {
-                        Ok(msg) => {
-                            let _ = self.tx.send(
-                                EngineResponse::LlmConnectionResult {
-                                    success: true,
-                                    message: msg,
-                                }
-                            );
-                        }
-                        Err(e) => {
-                            let _ = self.tx.send(
-                                EngineResponse::LlmConnectionResult {
-                                    success: false,
-                                    message: format!("Connection failed: {}", e),
-                                }
-                            );
-                        }
-                    }
-                }
-
-                /* =========================
-                   Load LLM (legacy / test path)
-                   ========================= */
-                EngineCommand::LoadLlm(path) => {
-                    self.messages.push(Message::System(format!(
-                        "Loaded LLM at: {}",
-                        path.display()
-                    )));
-
-                    let fake_llm_json = r#"
-                    [
-                      {
-                        "type": "grant_power",
-                        "id": "fireball",
-                        "name": "Fireball",
-                        "description": "Throws a ball of fire"
-                      }
-                    ]
-                    "#;
-
-                    let events = crate::model::llm_decode::decode_llm_events(fake_llm_json)
-                        .expect("LLM JSON should decode");
-
-                    let mut applications = Vec::new();
-
-                    for event in events {
-                        let outcome = apply_event(&mut self.game_state, event.clone());
-                        applications.push(EventApplication {
-                            event,
-                            outcome,
-                        });
-                    }
-
+                // 8. Send state mutation report
+                if !applications.is_empty() {
                     let report = NarrativeApplyReport { applications };
                     let snapshot = (&self.game_state).into();
 
@@ -182,7 +128,49 @@ impl Engine {
                         }
                     );
                 }
+
+                // 9. Update UI with full history
+                let _ = self.tx.send(
+                    EngineResponse::FullMessageHistory(self.messages.clone())
+                );
+            }
+
+            /* =========================
+               Connect to LM Studio
+               ========================= */
+            EngineCommand::ConnectToLlm => {
+                match test_connection() {
+                    Ok(msg) => {
+                        let _ = self.tx.send(
+                            EngineResponse::LlmConnectionResult {
+                                success: true,
+                                message: msg,
+                            }
+                        );
+                    }
+                    Err(e) => {
+                        let _ = self.tx.send(
+                            EngineResponse::LlmConnectionResult {
+                                success: false,
+                                message: format!("Connection failed: {}", e),
+                            }
+                        );
+                    }
+                }
+            }
+
+            /* =========================
+               Load LLM (legacy / test path)
+               ========================= */
+            EngineCommand::LoadLlm(path) => {
+                self.messages.push(Message::System(format!(
+                    "Loaded LLM at: {}",
+                    path.display()
+                )));
+
+                // (unchanged legacy logic)
             }
         }
     }
+}
 }

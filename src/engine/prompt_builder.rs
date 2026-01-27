@@ -1,4 +1,5 @@
 use crate::model::game_context::GameContext;
+use crate::model::message::{Message, RoleplaySpeaker};
 
 /// Builds the full prompt sent to the LLM.
 /// This struct is intentionally dumb: it only formats text.
@@ -9,7 +10,10 @@ impl PromptBuilder {
     pub fn build(context: &GameContext, player_input: &str) -> String {
         let mut prompt = String::new();
 
-        // ---------- SYSTEM PROMPT ----------
+        /* =========================
+           SYSTEM PROMPT
+           ========================= */
+
         prompt.push_str(
             "You are the narrator and all non-player characters in a roleplaying game.\n\n\
 Rules:\n\
@@ -31,9 +35,11 @@ EVENTS:\n\
 Do not add explanations, markdown, or extra sections.\n\n"
         );
 
-        // ---------- WORLD ----------
-        prompt.push_str("WORLD DEFINITION\n");
+        /* =========================
+           WORLD
+           ========================= */
 
+        prompt.push_str("WORLD DEFINITION\n");
         prompt.push_str(&format!("Title: {}\n", context.world.title));
         prompt.push_str(&format!("Author: {}\n\n", context.world.author));
 
@@ -85,7 +91,10 @@ Do not add explanations, markdown, or extra sections.\n\n"
             prompt.push('\n');
         }
 
-        // ---------- PLAYER ----------
+        /* =========================
+           PLAYER
+           ========================= */
+
         prompt.push_str("PLAYER CHARACTER:\n");
         prompt.push_str(&format!("Name: {}\n", context.player.name));
         prompt.push_str(&format!("Class: {}\n", context.player.class));
@@ -109,7 +118,10 @@ Do not add explanations, markdown, or extra sections.\n\n"
             prompt.push('\n');
         }
 
-        // ---------- PARTY ----------
+        /* =========================
+           PARTY
+           ========================= */
+
         prompt.push_str("PARTY MEMBERS:\n");
         if context.party.is_empty() {
             prompt.push_str("None\n");
@@ -125,24 +137,49 @@ Do not add explanations, markdown, or extra sections.\n\n"
         }
         prompt.push('\n');
 
-// ---------- CURRENT SITUATION ----------
-prompt.push_str("CURRENT SITUATION:\n");
+        /* =========================
+           NARRATIVE HISTORY
+           ========================= */
 
-if context.snapshot.is_some() {
-    prompt.push_str("The world state is tracked internally by the engine.\n");
-} else {
-    prompt.push_str("The adventure has just begun.\n");
-}
+        prompt.push_str("NARRATIVE HISTORY:\n");
 
-prompt.push_str("\n\n");
+        for msg in &context.history {
+            if let Message::Roleplay { speaker, text } = msg {
+                let tag = match speaker {
+                    RoleplaySpeaker::Narrator => "[NARRATOR]",
+                    RoleplaySpeaker::Npc => "[NPC]",
+                    RoleplaySpeaker::PartyMember => "[PARTY]",
+                };
+                prompt.push_str(&format!("{} {}\n", tag, text));
+            }
+        }
 
+        prompt.push('\n');
 
-        // ---------- PLAYER INPUT ----------
+        /* =========================
+           CURRENT SITUATION
+           ========================= */
+
+        prompt.push_str("CURRENT SITUATION:\n");
+        if context.snapshot.is_some() {
+            prompt.push_str("The world state is tracked internally by the engine.\n");
+        } else {
+            prompt.push_str("The adventure has just begun.\n");
+        }
+        prompt.push_str("\n\n");
+
+        /* =========================
+           PLAYER INPUT
+           ========================= */
+
         prompt.push_str("PLAYER ACTION:\n");
         prompt.push_str(player_input);
         prompt.push_str("\n\n");
 
-        // ---------- REMINDER ----------
+        /* =========================
+           REMINDER
+           ========================= */
+
         prompt.push_str(
             "REMINDER:\n\
 - Use speaker tags like [NARRATOR], [PARTY: Name], [NPC: Name]\n\

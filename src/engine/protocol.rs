@@ -13,10 +13,16 @@ pub enum EngineCommand {
         context: GameContext,
     },
 
-    /// Load / switch LLM backend (LM Studio, etc.)
+    /// Initialize narrative with opening message (world load)
+    InitializeNarrative {
+        opening_message: String,
+    },
+
+    /// Load / switch LLM backend
     ConnectToLlm,
     LoadLlm(PathBuf),
 }
+
 
 #[derive(Debug)]
 pub enum EngineResponse {

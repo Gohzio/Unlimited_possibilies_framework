@@ -1,10 +1,11 @@
 use eframe::egui;
+use std::sync::mpsc::Sender;
 
-use super::app::{
-    editable_list, RightTab, UiState, WorldDefinition,
-};
+use crate::engine::protocol::EngineCommand;
+use super::app::{editable_list, RightTab, UiState};
 
-pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState) {
+
+pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState, cmd_tx: &Sender<EngineCommand>,) {
     egui::SidePanel::right("right_panel")
         .resizable(true)
         .default_width(340.0)
@@ -20,7 +21,7 @@ pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState) {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 match ui_state.right_tab {
                     RightTab::Player => draw_character(ui, ui_state),
-                    RightTab::World => draw_world(ui, ui_state),
+                    RightTab::World => draw_world(ui, ui_state, cmd_tx),
                 }
             });
         });
@@ -119,10 +120,13 @@ fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
    World UI
    ========================= */
 
-fn draw_world(ui: &mut egui::Ui, state: &mut UiState) {
+fn draw_world(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    cmd_tx: &Sender<EngineCommand>,
+) {
     ui.heading("World Definition");
 
-    // ---- buttons FIRST
     let mut do_save = false;
     let mut do_load = false;
 
@@ -138,13 +142,20 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState) {
     if do_save {
         state.save_world();
     }
+
     if do_load {
-        state.load_world();
+        if let Some(world) = UiState::load_world_from_dialog() {
+            state.world = world.clone();
+
+            // 🔥 THIS is the semantic world-init event
+            let _ = cmd_tx.send(EngineCommand::InitializeNarrative {
+                opening_message: world.opening_message.clone(),
+            });
+        }
     }
 
     ui.separator();
 
-    // ---- NOW borrow world
     let w = &mut state.world;
 
     ui.label("Title");
