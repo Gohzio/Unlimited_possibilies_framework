@@ -15,5 +15,23 @@ pub enum Message {
     System(String),
 }
 
+impl Message {
+    pub fn as_text(&self) -> String {
+        match self {
+            Message::User(t) => format!("You: {}", t),
+
+            Message::Roleplay { speaker, text } => {
+                let tag = match speaker {
+                    RoleplaySpeaker::Narrator => "[NARRATOR]",
+                    RoleplaySpeaker::Npc => "[NPC]",
+                    RoleplaySpeaker::PartyMember => "[PARTY]",
+                };
+                format!("{} {}", tag, text)
+            }
+
+            Message::System(t) => format!("[SYSTEM] {}", t),
+        }
+    }
+}
 
 
