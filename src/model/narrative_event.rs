@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::model::narrative_event;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NarrativeEvent {
@@ -31,6 +29,26 @@ pub enum NarrativeEvent {
         name: String,
         role: String,
     },
+    NpcSpawn {
+        id: String,
+        name: String,
+        role: String,
+        notes: Option<String>,
+    },
+    NpcJoinParty {
+        id: String,
+        name: Option<String>,
+        role: Option<String>,
+        notes: Option<String>,
+    },
+    NpcLeaveParty {
+        id: String,
+    },
+    RelationshipChange {
+        subject_id: String,
+        target_id: String,
+        delta: i32,
+    },
 
     ModifyStat {
         stat_id: String,
@@ -56,12 +74,24 @@ pub enum NarrativeEvent {
         quantity: u32,
     },
     #[serde(rename = "drop")]
-Drop {
-    item: String,
-    quantity: Option<i32>,
-    description: Option<String>,
-}
-
+    Drop {
+        item: String,
+        quantity: Option<i32>,
+        description: Option<String>,
+    },
+    SpawnLoot {
+        item: String,
+        quantity: Option<i32>,
+        description: Option<String>,
+    },
+    CurrencyChange {
+        currency: String,
+        delta: i32,
+    },
+    Unknown {
+        event_type: String,
+        raw: serde_json::Value,
+    },
 }
 
 impl NarrativeEvent {
@@ -69,8 +99,14 @@ impl NarrativeEvent {
         match self {
             NarrativeEvent::GrantPower { .. } => "GrantPower",
             NarrativeEvent::AddPartyMember { .. } => "AddPartyMember",
+            NarrativeEvent::NpcSpawn { .. } => "NpcSpawn",
+            NarrativeEvent::NpcJoinParty { .. } => "NpcJoinParty",
+            NarrativeEvent::NpcLeaveParty { .. } => "NpcLeaveParty",
+            NarrativeEvent::RelationshipChange { .. } => "RelationshipChange",
             NarrativeEvent::AddItem { .. } => "AddItem",
             NarrativeEvent::Drop { .. } => "Drop",
+            NarrativeEvent::SpawnLoot { .. } => "SpawnLoot",
+            NarrativeEvent::CurrencyChange { .. } => "CurrencyChange",
             NarrativeEvent::ModifyStat { .. } => "ModifyStat",
             NarrativeEvent::StartQuest { .. } => "StartQuest",
             NarrativeEvent::SetFlag { .. } => "SetFlag",
@@ -79,6 +115,7 @@ impl NarrativeEvent {
             NarrativeEvent::Dialogue { .. } => "Dialogue",
             NarrativeEvent::Travel { .. } => "Travel",
             NarrativeEvent::Rest { .. } => "Rest",
+            NarrativeEvent::Unknown { .. } => "Unknown",
         }
     }
 }

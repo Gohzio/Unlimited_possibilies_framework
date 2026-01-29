@@ -34,7 +34,25 @@ NARRATIVE:\n\
 <text>\n\n\
 EVENTS:\n\
 <json>\n\n\
-Do not add explanations, markdown, or extra sections.\n\n"
+Do not add explanations, markdown, or extra sections.\n\n\
+Event Types (JSON array of objects with a \"type\" field):\n\
+- combat { description }\n\
+- dialogue { speaker, text }\n\
+- travel { from, to }\n\
+- rest { description }\n\
+- grant_power { id, name, description }\n\
+- modify_stat { stat_id, delta }\n\
+- start_quest { id, title, description }\n\
+- set_flag { flag }\n\
+- add_party_member { id, name, role }\n\
+- npc_spawn { id, name, role, notes? }\n\
+- npc_join_party { id, name?, role?, notes? }\n\
+- npc_leave_party { id }\n\
+- relationship_change { subject_id, target_id, delta }\n\
+- add_item { item_id, quantity }\n\
+- drop { item, quantity?, description? }\n\
+- spawn_loot { item, quantity?, description? }\n\
+- currency_change { currency, delta }\n\n"
         );
 
         /* =========================
@@ -130,7 +148,7 @@ Do not add explanations, markdown, or extra sections.\n\n"
         } else {
             for member in &context.party {
                 prompt.push_str(&format!(
-                    "- {} ({})\n  Notes: {}\n",
+                    "- [PARTY: {}] Role: {}\n  Notes: {}\n",
                     member.name,
                     member.role,
                     member.notes
@@ -147,12 +165,25 @@ Do not add explanations, markdown, or extra sections.\n\n"
 
         for msg in &context.history {
             if let Message::Roleplay { speaker, text } = msg {
-                let tag = match speaker {
-                    RoleplaySpeaker::Narrator => "[NARRATOR]",
-                    RoleplaySpeaker::Npc => "[NPC]",
-                    RoleplaySpeaker::PartyMember => "[PARTY]",
-                };
-                prompt.push_str(&format!("{} {}\n", tag, text));
+                match speaker {
+                    RoleplaySpeaker::Narrator => {
+                        prompt.push_str(&format!("[NARRATOR] {}\n", text));
+                    }
+                    RoleplaySpeaker::Npc => {
+                        if let Some((name, body)) = split_speaker_text(text) {
+                            prompt.push_str(&format!("[NPC: {}] {}\n", name, body));
+                        } else {
+                            prompt.push_str(&format!("[NPC] {}\n", text));
+                        }
+                    }
+                    RoleplaySpeaker::PartyMember => {
+                        if let Some((name, body)) = split_speaker_text(text) {
+                            prompt.push_str(&format!("[PARTY: {}] {}\n", name, body));
+                        } else {
+                            prompt.push_str(&format!("[PARTY] {}\n", text));
+                        }
+                    }
+                }
             }
         }
 
@@ -192,4 +223,14 @@ Do not add explanations, markdown, or extra sections.\n\n"
 
         prompt
     }
+}
+
+fn split_speaker_text(text: &str) -> Option<(&str, &str)> {
+    let (name, body) = text.split_once(':')?;
+    let name = name.trim();
+    let body = body.trim();
+    if name.is_empty() || body.is_empty() {
+        return None;
+    }
+    Some((name, body))
 }

@@ -21,6 +21,14 @@ pub enum EngineCommand {
     /// Load / switch LLM backend
     ConnectToLlm,
     LoadLlm(PathBuf),
+
+    /// UI-driven: move an NPC into the party without LLM involvement
+    AddNpcToParty {
+        id: String,
+        name: String,
+        role: String,
+        notes: String,
+    },
 }
 
 
@@ -36,4 +44,3 @@ pub enum EngineResponse {
         message: String,
     },
 }
-

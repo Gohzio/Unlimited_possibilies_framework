@@ -7,6 +7,11 @@ use crate::model::game_state::{
     Power,
     PartyMember,
     Quest,
+    ItemStack,
+    LootDrop,
+    CurrencyBalance,
+    Npc,
+    Relationship,
 };
 
 #[derive(Debug)]
@@ -22,6 +27,11 @@ pub struct InternalGameState {
     pub powers: HashMap<String, Power>,
     pub party: HashMap<String, PartyMember>,
     pub quests: HashMap<String, Quest>,
+    pub inventory: HashMap<String, ItemStack>,
+    pub loot: Vec<LootDrop>,
+    pub currencies: HashMap<String, i32>,
+    pub npcs: HashMap<String, Npc>,
+    pub relationships: HashMap<String, Relationship>,
 
     pub flags: HashSet<String>,
 }
@@ -41,6 +51,17 @@ impl From<&InternalGameState> for GameStateSnapshot {
             powers: state.powers.values().cloned().collect(),
             party: state.party.values().cloned().collect(),
             quests: state.quests.values().cloned().collect(),
+            inventory: state.inventory.values().cloned().collect(),
+            loot: state.loot.clone(),
+            currencies: state.currencies
+                .iter()
+                .map(|(currency, amount)| CurrencyBalance {
+                    currency: currency.clone(),
+                    amount: *amount,
+                })
+                .collect(),
+            npcs: state.npcs.values().cloned().collect(),
+            relationships: state.relationships.values().cloned().collect(),
             flags: state.flags.iter().cloned().collect(),
         }
     }
@@ -68,6 +89,11 @@ impl Default for InternalGameState {
             powers: HashMap::new(),
             party: HashMap::new(),
             quests: HashMap::new(),
+            inventory: HashMap::new(),
+            loot: Vec::new(),
+            currencies: HashMap::new(),
+            npcs: HashMap::new(),
+            relationships: HashMap::new(),
 
             flags: HashSet::new(),
         }

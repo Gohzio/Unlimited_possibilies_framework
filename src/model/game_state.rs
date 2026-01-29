@@ -14,6 +14,11 @@ pub struct GameStateSnapshot {
     pub powers: Vec<Power>,
     pub party: Vec<PartyMember>,
     pub quests: Vec<Quest>,
+    pub inventory: Vec<ItemStack>,
+    pub loot: Vec<LootDrop>,
+    pub currencies: Vec<CurrencyBalance>,
+    pub npcs: Vec<Npc>,
+    pub relationships: Vec<Relationship>,
 
     pub flags: Vec<String>,
 }
@@ -52,6 +57,41 @@ pub struct Quest {
     pub id: String,
     pub title: String,
     pub status: QuestStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemStack {
+    pub id: String,
+    pub quantity: u32,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LootDrop {
+    pub item: String,
+    pub quantity: u32,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurrencyBalance {
+    pub currency: String,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Npc {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relationship {
+    pub subject_id: String,
+    pub target_id: String,
+    pub value: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
