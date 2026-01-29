@@ -5,3 +5,7 @@
 **/.idea/
 **/.vscode/
 **/.flycheck/
+
+# Local data
+character.json
+world.json
