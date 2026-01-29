@@ -57,7 +57,7 @@ pub fn apply_event(
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::NpcSpawn { id, name, role, notes } => {
+        NarrativeEvent::NpcSpawn { id, name, role, details } => {
             if state.npcs.contains_key(&id) {
                 return EventApplyOutcome::Rejected {
                     reason: format!("NPC '{}' already exists", id),
@@ -70,14 +70,14 @@ pub fn apply_event(
                     id,
                     name,
                     role,
-                    notes: notes.unwrap_or_default(),
+                    notes: details.unwrap_or_default(),
                 },
             );
 
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::NpcJoinParty { id, name, role, notes: _ } => {
+        NarrativeEvent::NpcJoinParty { id, name, role, details: _ } => {
             if state.party.contains_key(&id) {
                 return EventApplyOutcome::Rejected {
                     reason: format!("Party member '{}' already exists", id),

@@ -33,13 +33,15 @@ pub enum NarrativeEvent {
         id: String,
         name: String,
         role: String,
-        notes: Option<String>,
+        #[serde(alias = "notes")]
+        details: Option<String>,
     },
     NpcJoinParty {
         id: String,
         name: Option<String>,
         role: Option<String>,
-        notes: Option<String>,
+        #[serde(alias = "notes")]
+        details: Option<String>,
     },
     NpcLeaveParty {
         id: String,
@@ -92,30 +94,4 @@ pub enum NarrativeEvent {
         event_type: String,
         raw: serde_json::Value,
     },
-}
-
-impl NarrativeEvent {
-    pub fn short_name(&self) -> &'static str {
-        match self {
-            NarrativeEvent::GrantPower { .. } => "GrantPower",
-            NarrativeEvent::AddPartyMember { .. } => "AddPartyMember",
-            NarrativeEvent::NpcSpawn { .. } => "NpcSpawn",
-            NarrativeEvent::NpcJoinParty { .. } => "NpcJoinParty",
-            NarrativeEvent::NpcLeaveParty { .. } => "NpcLeaveParty",
-            NarrativeEvent::RelationshipChange { .. } => "RelationshipChange",
-            NarrativeEvent::AddItem { .. } => "AddItem",
-            NarrativeEvent::Drop { .. } => "Drop",
-            NarrativeEvent::SpawnLoot { .. } => "SpawnLoot",
-            NarrativeEvent::CurrencyChange { .. } => "CurrencyChange",
-            NarrativeEvent::ModifyStat { .. } => "ModifyStat",
-            NarrativeEvent::StartQuest { .. } => "StartQuest",
-            NarrativeEvent::SetFlag { .. } => "SetFlag",
-            NarrativeEvent::RequestRetcon { .. } => "RequestRetcon",
-            NarrativeEvent::Combat { .. } => "Combat",
-            NarrativeEvent::Dialogue { .. } => "Dialogue",
-            NarrativeEvent::Travel { .. } => "Travel",
-            NarrativeEvent::Rest { .. } => "Rest",
-            NarrativeEvent::Unknown { .. } => "Unknown",
-        }
-    }
 }

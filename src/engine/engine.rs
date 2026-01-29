@@ -162,12 +162,12 @@ pub fn run(&mut self) {
             /* =========================
                UI: Add NPC to party
                ========================= */
-            EngineCommand::AddNpcToParty { id, name, role, notes: _ } => {
+            EngineCommand::AddNpcToParty { id, name, role, details } => {
                 let event = crate::model::narrative_event::NarrativeEvent::NpcJoinParty {
                     id,
                     name: Some(name),
                     role: Some(role),
-                    notes: None,
+                    details: Some(details),
                 };
 
                 let outcome = apply_event(&mut self.game_state, event.clone());
@@ -181,17 +181,6 @@ pub fn run(&mut self) {
                 );
             }
 
-            /* =========================
-               Load LLM (legacy / test path)
-               ========================= */
-            EngineCommand::LoadLlm(path) => {
-                self.messages.push(Message::System(format!(
-                    "Loaded LLM at: {}",
-                    path.display()
-                )));
-
-                // (unchanged legacy logic)
-            }
         }
     }
 }

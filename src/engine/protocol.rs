@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use crate::model::message::Message;
 use crate::model::event_result::NarrativeApplyReport;
 use crate::model::game_state::GameStateSnapshot;
@@ -20,14 +18,13 @@ pub enum EngineCommand {
 
     /// Load / switch LLM backend
     ConnectToLlm,
-    LoadLlm(PathBuf),
 
     /// UI-driven: move an NPC into the party without LLM involvement
     AddNpcToParty {
         id: String,
         name: String,
         role: String,
-        notes: String,
+        details: String,
     },
 }
 

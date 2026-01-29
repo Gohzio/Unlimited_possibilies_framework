@@ -45,8 +45,8 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - start_quest { id, title, description }\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
-- npc_spawn { id, name, role, notes? }\n\
-- npc_join_party { id, name?, role?, notes? }\n\
+- npc_spawn { id, name, role, details? }\n\
+- npc_join_party { id, name?, role?, details? }\n\
 - npc_leave_party { id }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - add_item { item_id, quantity }\n\
@@ -148,10 +148,10 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         } else {
             for member in &context.party {
                 prompt.push_str(&format!(
-                    "- [PARTY: {}] Role: {}\n  Notes: {}\n",
+                    "- [PARTY: {}] Role: {}\n  Details: {}\n",
                     member.name,
                     member.role,
-                    member.notes
+                    member.details
                 ));
             }
         }

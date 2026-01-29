@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::fs;
 use std::fs::File;
 use rfd::FileDialog;
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 
 
 use super::left_panel::draw_left_panel;
@@ -104,9 +104,10 @@ impl Default for CharacterDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PartyMember {
+    pub id: Option<String>,
     pub name: String,
     pub role: String,
-    pub notes: String,
+    pub details: String,
 }
 
 
@@ -321,6 +322,137 @@ impl UiState {
         self.character_image_rgba = Some(rgba);
         self.character_image_size = Some((width, height));
     }
+
+    pub fn apply_party_updates_from_report(
+        &mut self,
+        report: &crate::model::event_result::NarrativeApplyReport,
+    ) {
+        for app in &report.applications {
+            use crate::model::narrative_event::NarrativeEvent;
+            match &app.event {
+                NarrativeEvent::AddPartyMember { id, name, role } => {
+                    self.upsert_party_member(Some(id), Some(name), Some(role), None);
+                }
+                NarrativeEvent::NpcJoinParty { id, name, role, details } => {
+                    self.upsert_party_member(
+                        Some(id),
+                        name.as_deref(),
+                        role.as_deref(),
+                        details.as_deref(),
+                    );
+                }
+                NarrativeEvent::NpcLeaveParty { id } => {
+                    if let Some(idx) = self.party.iter().position(|m| m.id.as_deref() == Some(id)) {
+                        self.party.remove(idx);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn sync_party_from_snapshot(
+        &mut self,
+        snapshot: &crate::model::game_state::GameStateSnapshot,
+    ) {
+        for member in &snapshot.party {
+            self.upsert_party_member(
+                Some(&member.id),
+                Some(&member.name),
+                Some(&member.role),
+                None,
+            );
+        }
+    }
+
+    pub fn sync_party_from_messages(&mut self) {
+        let messages = self.rendered_messages.clone();
+        for msg in messages {
+            let crate::model::message::Message::Roleplay { speaker, text } = msg else {
+                continue;
+            };
+            if !matches!(speaker, crate::model::message::RoleplaySpeaker::PartyMember) {
+                continue;
+            }
+            let Some((name, body)) = text.split_once(':') else {
+                continue;
+            };
+            let name = name.trim();
+            let body = body.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let details = if body.is_empty() { None } else { Some(body) };
+            self.upsert_party_member(None, Some(name), None, details);
+        }
+    }
+
+    fn upsert_party_member(
+        &mut self,
+        id: Option<&str>,
+        name: Option<&str>,
+        role: Option<&str>,
+        details: Option<&str>,
+    ) {
+        let mut index = None;
+        if let Some(id) = id {
+            index = self.party.iter().position(|m| m.id.as_deref() == Some(id));
+        }
+        if index.is_none() {
+            if let Some(name) = name {
+                let needle = name.trim();
+                if !needle.is_empty() {
+                    index = self
+                        .party
+                        .iter()
+                        .position(|m| m.name.eq_ignore_ascii_case(needle));
+                }
+            }
+        }
+
+        let name_value = name.unwrap_or("Unknown").trim();
+        let role_value = role.unwrap_or("Unknown").trim();
+
+        if let Some(i) = index {
+            let member = &mut self.party[i];
+            if member.id.is_none() {
+                member.id = id.map(|v| v.to_string());
+            }
+
+            if !name_value.is_empty()
+                && (member.name.trim().is_empty() || member.name.eq_ignore_ascii_case("unknown"))
+            {
+                member.name = name_value.to_string();
+            }
+
+            if !role_value.is_empty()
+                && (member.role.trim().is_empty() || member.role.eq_ignore_ascii_case("unknown"))
+            {
+                member.role = role_value.to_string();
+            }
+
+            if let Some(details) = details {
+                let trimmed = details.trim();
+                if !trimmed.is_empty() {
+                    if member.details.trim().is_empty() {
+                        member.details = trimmed.to_string();
+                    } else if !member.details.contains(trimmed) {
+                        member.details = format!("{}\n{}", member.details.trim_end(), trimmed);
+                    }
+                }
+            }
+        } else {
+            if id.is_none() && name.map(|v| v.trim().is_empty()).unwrap_or(true) {
+                return;
+            }
+            self.party.push(PartyMember {
+                id: id.map(|v| v.to_string()),
+                name: name_value.to_string(),
+                role: role_value.to_string(),
+                details: details.unwrap_or("").trim().to_string(),
+            });
+        }
+    }
 }
 /* =========================
    Config
@@ -415,9 +547,13 @@ impl eframe::App for MyApp {
                 EngineResponse::FullMessageHistory(msgs) => {
                     self.ui.rendered_messages = msgs;
                     self.ui.should_auto_scroll = true;
+                    self.ui.sync_party_from_messages();
                 }
                 EngineResponse::NarrativeApplied { report, snapshot } => {
-                    self.ui.snapshot = Some(snapshot);
+                    self.ui.snapshot = Some(snapshot.clone());
+                    self.ui.apply_party_updates_from_report(&report);
+                    self.ui.sync_party_from_snapshot(&snapshot);
+                    self.ui.sync_party_from_messages();
                     for a in report.applications {
                         let t = format!("{:?}", a.outcome);
                         self.ui.rendered_messages.push(Message::System(t));

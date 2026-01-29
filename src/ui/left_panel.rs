@@ -56,11 +56,11 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState) {
             ui.label("Name");
             ui.text_edit_singleline(&mut member.name);
 
-            ui.label("Role");
+            ui.label("Role/Class");
             ui.text_edit_singleline(&mut member.role);
 
-            ui.label("Notes");
-            ui.text_edit_multiline(&mut member.notes);
+            ui.label("Details");
+            ui.text_edit_multiline(&mut member.details);
         });
 
         ui.add_space(6.0);
@@ -109,27 +109,28 @@ fn draw_local_npcs(
                                 .any(|m| m.name.eq_ignore_ascii_case(&npc.name))
                             {
                                 state.party.push(PartyMember {
+                                    id: Some(npc.id.clone()),
                                     name: npc.name.clone(),
                                     role: npc.role.clone(),
-                                    notes: npc.notes.clone(),
+                                    details: npc.notes.clone(),
                                 });
                             }
                             let _ = cmd_tx.send(EngineCommand::AddNpcToParty {
                                 id: npc.id.clone(),
                                 name: npc.name.clone(),
                                 role: npc.role.clone(),
-                                notes: npc.notes.clone(),
+                                details: npc.notes.clone(),
                             });
                             state.left_tab = LeftTab::Party;
                         }
                     });
 
-            if !npc.role.is_empty() {
-                ui.label(format!("Role: {}", npc.role));
-            }
-            if !npc.notes.is_empty() {
-                ui.label(format!("Notes: {}", npc.notes));
-            }
+                    if !npc.role.is_empty() {
+                        ui.label(format!("Role: {}", npc.role));
+                    }
+                    if !npc.notes.is_empty() {
+                        ui.label(format!("Notes: {}", npc.notes));
+                    }
         });
 
         ui.add_space(6.0);
