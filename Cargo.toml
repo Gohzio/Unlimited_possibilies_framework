@@ -12,3 +12,5 @@ serde_json = "1.0"
 dirs = "6.0"
 reqwest = { version = "0.13.1", features = ["json", "blocking"] }
 anyhow = "1.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+png = "0.17.16"

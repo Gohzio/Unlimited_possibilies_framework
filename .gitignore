@@ -9,3 +9,8 @@
 # Local data
 character.json
 world.json
+
+# Local images
+*.png
+*.jpg
+*.jpeg

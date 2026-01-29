@@ -2,10 +2,12 @@ use eframe::egui;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::fs;
+use std::fs::File;
 use rfd::FileDialog;
+use image::io::Reader as ImageReader;
 
 
 use super::left_panel::draw_left_panel;
@@ -176,6 +178,10 @@ pub struct UiState {
     pub world_locked: bool,
     pub new_stat_name: String,    // NEW: for adding new stats
     pub new_stat_value: i32,      // NEW: for adding new stats
+
+    pub character_image: Option<egui::TextureHandle>,
+    pub character_image_rgba: Option<Vec<u8>>,
+    pub character_image_size: Option<(u32, u32)>,
 }
 
 impl Default for UiState {
@@ -206,30 +212,75 @@ impl Default for UiState {
             world_locked: false,
             new_stat_name: String::new(),
             new_stat_value: 10,
+
+            character_image: None,
+            character_image_rgba: None,
+            character_image_size: None,
         }
     }
 }
 
 impl UiState {
+    pub fn load_character_image_from_dialog(&mut self, ctx: &egui::Context) {
+        let path = FileDialog::new()
+            .add_filter("Image", &["png", "jpg", "jpeg"])
+            .pick_file();
+        let Some(path) = path else {
+            return;
+        };
+        if let Ok((width, height, rgba)) = load_image_rgba(&path) {
+            self.set_character_image_from_rgba(ctx, width, height, rgba);
+        }
+    }
+
     pub fn save_character(&self) {
         let Some(path) = FileDialog::new()
-            .add_filter("Character", &["json"])
-            .set_file_name("character.json")
+            .add_filter("Character Image", &["png"])
+            .set_file_name("character.png")
             .save_file()
         else {
             return;
         };
+
+        let (width, height) = match self.character_image_size {
+            Some(size) => size,
+            None => return,
+        };
+        let Some(rgba) = self.character_image_rgba.as_ref() else {
+            return;
+        };
+
+        let Some(path) = force_png_extension(path) else {
+            return;
+        };
+
         if let Ok(json) = serde_json::to_string_pretty(&self.character) {
-            let _ = fs::write(path, json);
+            let _ = write_png_with_character_json(&path, width, height, rgba, &json);
         }
     }
 
-    pub fn load_character_from_dialog() -> Option<CharacterDefinition> {
+    pub fn load_character_from_dialog(
+        &mut self,
+        ctx: &egui::Context,
+    ) -> Option<CharacterDefinition> {
         let path = FileDialog::new()
-            .add_filter("Character", &["json"])
+            .add_filter("Character Image", &["png"])
+            .add_filter("Character Json", &["json"])
             .pick_file()?;
-        let data = fs::read_to_string(path).ok()?;
-        serde_json::from_str::<CharacterDefinition>(&data).ok()
+
+        match path.extension().and_then(|s| s.to_str()) {
+            Some(ext) if ext.eq_ignore_ascii_case("png") => {
+                let json = extract_character_json_from_png(&path)?;
+                if let Ok((width, height, rgba)) = load_image_rgba(&path) {
+                    self.set_character_image_from_rgba(ctx, width, height, rgba);
+                }
+                serde_json::from_str::<CharacterDefinition>(&json).ok()
+            }
+            _ => {
+                let data = fs::read_to_string(path).ok()?;
+                serde_json::from_str::<CharacterDefinition>(&data).ok()
+            }
+        }
     }
 
     pub fn save_world(&self) {
@@ -251,6 +302,24 @@ impl UiState {
             .pick_file()?;
         let data = fs::read_to_string(path).ok()?;
         serde_json::from_str::<WorldDefinition>(&data).ok()
+    }
+
+    fn set_character_image_from_rgba(
+        &mut self,
+        ctx: &egui::Context,
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    ) {
+        let image = egui::ColorImage::from_rgba_unmultiplied(
+            [width as usize, height as usize],
+            &rgba,
+        );
+        let texture =
+            ctx.load_texture("character_portrait", image, egui::TextureOptions::LINEAR);
+        self.character_image = Some(texture);
+        self.character_image_rgba = Some(rgba);
+        self.character_image_size = Some((width, height));
     }
 }
 /* =========================
@@ -466,4 +535,69 @@ fn load_config(ui: &mut UiState) {
             ui.speaker_colors = cfg.speaker_colors;
         }
     }
+}
+
+const CHARACTER_PNG_KEY: &str = "UPF_CHARACTER_JSON";
+
+fn load_image_rgba(path: &Path) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+    let image = ImageReader::open(path)?.with_guessed_format()?.decode()?;
+    let rgba = image.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok((width, height, rgba.into_raw()))
+}
+
+fn extract_character_json_from_png(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let decoder = png::Decoder::new(file);
+    let reader = decoder.read_info().ok()?;
+    let info = reader.info();
+
+    for chunk in &info.utf8_text {
+        if chunk.keyword == CHARACTER_PNG_KEY {
+            if let Ok(text) = chunk.get_text() {
+                return Some(text);
+            }
+        }
+    }
+    for chunk in &info.uncompressed_latin1_text {
+        if chunk.keyword == CHARACTER_PNG_KEY {
+            return Some(chunk.text.clone());
+        }
+    }
+    for chunk in &info.compressed_latin1_text {
+        if chunk.keyword == CHARACTER_PNG_KEY {
+            if let Ok(text) = chunk.get_text() {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+fn force_png_extension(mut path: PathBuf) -> Option<PathBuf> {
+    let needs_png = match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) => !ext.eq_ignore_ascii_case("png"),
+        None => true,
+    };
+    if needs_png {
+        path.set_extension("png");
+    }
+    Some(path)
+}
+
+fn write_png_with_character_json(
+    path: &Path,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    json: &str,
+) -> anyhow::Result<()> {
+    let file = File::create(path)?;
+    let mut encoder = png::Encoder::new(file, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder.add_itxt_chunk(CHARACTER_PNG_KEY.to_string(), json.to_string())?;
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(rgba)?;
+    Ok(())
 }

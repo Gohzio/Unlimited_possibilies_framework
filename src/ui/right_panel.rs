@@ -42,8 +42,12 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
     // Save / Load buttons
     let mut do_save = false;
     let mut do_load = false;
+    let mut do_upload = false;
 
     ui.horizontal(|ui| {
+        if ui.button("🖼 Upload Image").clicked() {
+            do_upload = true;
+        }
         if ui.button("💾 Save Character").clicked() {
             do_save = true;
         }
@@ -60,9 +64,24 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         state.save_character();
     }
     if do_load {
-        if let Some(c) = UiState::load_character_from_dialog() {
+        if let Some(c) = state.load_character_from_dialog(ui.ctx()) {
             state.character = c;
         }
+    }
+    if do_upload {
+        state.load_character_image_from_dialog(ui.ctx());
+    }
+
+    if let Some(texture) = &state.character_image {
+        let width = ui.available_width();
+        let height = match state.character_image_size {
+            Some((w, h)) if w > 0 => width * (h as f32 / w as f32),
+            _ => width,
+        };
+        ui.add(
+            egui::Image::from_texture(texture)
+                .fit_to_exact_size(egui::Vec2::new(width, height)),
+        );
     }
 
     ui.separator();
