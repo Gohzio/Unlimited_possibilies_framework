@@ -101,14 +101,43 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
 
     egui::TopBottomPanel::bottom("chat_input").show(ctx, |ui| {
         let mut send_now = false;
+        let mut reset_session = false;
+        let mut reset_all = false;
 
         ui.horizontal(|ui| {
-            if ui.small_button("⚙").clicked() {
-                app.ui.show_settings = true;
-            }
-            if ui.small_button("🛠").clicked() {
-                app.ui.show_options = true;
-            }
+            ui.vertical(|ui| {
+                if ui
+                    .small_button("⚙")
+                    .on_hover_text("Settings")
+                    .clicked()
+                {
+                    app.ui.show_settings = true;
+                }
+                if ui
+                    .small_button("↺")
+                    .on_hover_text("Restart chat (keep world/player)")
+                    .clicked()
+                {
+                    reset_session = true;
+                }
+            });
+
+            ui.vertical(|ui| {
+                if ui
+                    .small_button("🛠")
+                    .on_hover_text("Options")
+                    .clicked()
+                {
+                    app.ui.show_options = true;
+                }
+                if ui
+                    .small_button("🧹")
+                    .on_hover_text("Reset everything to defaults")
+                    .clicked()
+                {
+                    reset_all = true;
+                }
+            });
 
             let send_button_width = 60.0;
             let text_width = ui.available_width() - send_button_width - 8.0;
@@ -146,6 +175,15 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
             }
 
             ui.memory_mut(|m| m.request_focus(input_id));
+        }
+
+        if reset_all {
+            app.ui = crate::ui::app::UiState::default();
+            let opening_message = app.ui.world.opening_message.clone();
+            app.send_command(EngineCommand::InitializeNarrative { opening_message });
+        } else if reset_session {
+            let opening_message = app.ui.world.opening_message.clone();
+            app.send_command(EngineCommand::InitializeNarrative { opening_message });
         }
     });
 }

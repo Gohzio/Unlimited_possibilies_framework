@@ -172,6 +172,8 @@ pub struct UiState {
 
     pub left_tab: LeftTab,
     pub right_tab: RightTab,      // NEW: track which right panel tab is active
+    pub player_locked: bool,
+    pub world_locked: bool,
     pub new_stat_name: String,    // NEW: for adding new stats
     pub new_stat_value: i32,      // NEW: for adding new stats
 }
@@ -200,6 +202,8 @@ impl Default for UiState {
 
             left_tab: LeftTab::Party,
             right_tab: RightTab::Player, // NEW: default tab
+            player_locked: false,
+            world_locked: false,
             new_stat_name: String::new(),
             new_stat_value: 10,
         }

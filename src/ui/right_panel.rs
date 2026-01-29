@@ -47,7 +47,11 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         if ui.button("💾 Save Character").clicked() {
             do_save = true;
         }
-        if ui.button("📂 Load Character").clicked() {
+        if ui
+            .add_enabled(!state.player_locked, egui::Button::new("📂 Load Character"))
+            .on_disabled_hover_text("Character is locked in")
+            .clicked()
+        {
             do_load = true;
         }
     });
@@ -66,58 +70,85 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
     let c = &mut state.character;
 
     ui.collapsing("Details", |ui| {
-        ui.label("Name");
-        ui.text_edit_singleline(&mut c.name);
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            ui.label("Name");
+            ui.text_edit_singleline(&mut c.name);
 
-        ui.label("Class");
-        ui.text_edit_singleline(&mut c.class);
+            ui.label("Class");
+            ui.text_edit_singleline(&mut c.class);
 
-        ui.label("Background");
-        ui.text_edit_multiline(&mut c.background);
+            ui.label("Background");
+            ui.text_edit_multiline(&mut c.background);
+        });
     });
 
     ui.collapsing("Stats", |ui| {
-        let mut remove_key: Option<String> = None;
-        for key in c.stats.keys().cloned().collect::<Vec<_>>() {
-            if let Some(val) = c.stats.get_mut(&key) {
-                ui.horizontal(|ui| {
-                    ui.label(&key);
-                    ui.add(egui::DragValue::new(val).speed(1));
-                    if ui.small_button("❌").clicked() {
-                        remove_key = Some(key.clone());
-                    }
-                });
-            }
-        }
-        if let Some(key) = remove_key {
-            c.stats.remove(&key);
-        }
-
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut state.new_stat_name);
-            ui.add(egui::DragValue::new(&mut state.new_stat_value).speed(1).range(0..=999));
-            if ui.button("Add").clicked() {
-                let name = state.new_stat_name.trim();
-                if !name.is_empty() && !c.stats.contains_key(name) {
-                    c.stats.insert(name.to_string(), state.new_stat_value);
-                    state.new_stat_name.clear();
-                    state.new_stat_value = 10;
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            let mut remove_key: Option<String> = None;
+            for key in c.stats.keys().cloned().collect::<Vec<_>>() {
+                if let Some(val) = c.stats.get_mut(&key) {
+                    ui.horizontal(|ui| {
+                        ui.label(&key);
+                        ui.add(egui::DragValue::new(val).speed(1));
+                        if ui.small_button("❌").clicked() {
+                            remove_key = Some(key.clone());
+                        }
+                    });
                 }
             }
+            if let Some(key) = remove_key {
+                c.stats.remove(&key);
+            }
+
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut state.new_stat_name);
+                ui.add(egui::DragValue::new(&mut state.new_stat_value).speed(1).range(0..=999));
+                if ui.button("Add").clicked() {
+                    let name = state.new_stat_name.trim();
+                    if !name.is_empty() && !c.stats.contains_key(name) {
+                        c.stats.insert(name.to_string(), state.new_stat_value);
+                        state.new_stat_name.clear();
+                        state.new_stat_value = 10;
+                    }
+                }
+            });
         });
     });
 
     ui.collapsing("Powers", |ui| {
-        editable_list(ui, "Powers", &mut c.powers, "Add power");
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            editable_list(ui, "Powers", &mut c.powers, "Add power");
+        });
     });
 
     ui.collapsing("Features & Boons", |ui| {
-        editable_list(ui, "Features & Boons", &mut c.features, "Add feature");
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            editable_list(ui, "Features & Boons", &mut c.features, "Add feature");
+        });
     });
 
     ui.collapsing("Inventory", |ui| {
-        editable_list(ui, "Inventory", &mut c.inventory, "Add item");
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            editable_list(ui, "Inventory", &mut c.inventory, "Add item");
+        });
     });
+
+    ui.add_space(6.0);
+    if !state.player_locked {
+        if ui
+            .button("🔒 Lock In Character")
+            .on_hover_text("Lock character fields until reset")
+            .clicked()
+        {
+            state.player_locked = true;
+        }
+    } else if ui
+        .button("🔓 Unlock Character")
+        .on_hover_text("Unlock character fields for editing")
+        .clicked()
+    {
+        state.player_locked = false;
+    }
 }
 
 /* =========================
@@ -134,7 +165,11 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
         if ui.button("💾 Save World").clicked() {
             do_save = true;
         }
-        if ui.button("📂 Load World").clicked() {
+        if ui
+            .add_enabled(!state.world_locked, egui::Button::new("📂 Load World"))
+            .on_disabled_hover_text("World is locked in")
+            .clicked()
+        {
             do_load = true;
         }
     });
@@ -156,46 +191,77 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
 
     let w = &mut state.world;
 
-    ui.label("Title");
-    ui.text_edit_singleline(&mut w.title);
+    ui.add_enabled_ui(!state.world_locked, |ui| {
+        ui.label("Title");
+        ui.text_edit_singleline(&mut w.title);
 
-    ui.label("World ID");
-    ui.text_edit_singleline(&mut w.world_id);
+        ui.label("World ID");
+        ui.text_edit_singleline(&mut w.world_id);
 
-    ui.label("Author");
-    ui.text_edit_singleline(&mut w.author);
+        ui.label("Author");
+        ui.text_edit_singleline(&mut w.author);
+    });
 
     ui.collapsing("Description", |ui| {
-        ui.text_edit_multiline(&mut w.description);
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.text_edit_multiline(&mut w.description);
+        });
     });
 
     ui.collapsing("Themes", |ui| {
-        editable_list(ui, "Themes", &mut w.themes, "Add theme");
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            editable_list(ui, "Themes", &mut w.themes, "Add theme");
+        });
     });
 
     ui.collapsing("Tone", |ui| {
-        editable_list(ui, "Tone", &mut w.tone, "Add tone");
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            editable_list(ui, "Tone", &mut w.tone, "Add tone");
+        });
     });
 
     ui.collapsing("Narration & Style", |ui| {
-        ui.label("Narrator Role");
-        ui.text_edit_multiline(&mut w.narrator_role);
-        ui.separator();
-        editable_list(ui, "Style Guidelines", &mut w.style_guidelines, "Add guideline");
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.label("Narrator Role");
+            ui.text_edit_multiline(&mut w.narrator_role);
+            ui.separator();
+            editable_list(ui, "Style Guidelines", &mut w.style_guidelines, "Add guideline");
+        });
     });
 
     ui.collapsing("Opening Message", |ui| {
-        ui.text_edit_multiline(&mut w.opening_message);
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.text_edit_multiline(&mut w.opening_message);
+        });
     });
 
     ui.collapsing("Hard Constraints", |ui| {
-        ui.label("Must NOT");
-        editable_list(ui, "Must Not", &mut w.must_not, "Add restriction");
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.label("Must NOT");
+            editable_list(ui, "Must Not", &mut w.must_not, "Add restriction");
 
-        ui.separator();
-        ui.label("Must ALWAYS");
-        editable_list(ui, "Must Always", &mut w.must_always, "Add rule");
+            ui.separator();
+            ui.label("Must ALWAYS");
+            editable_list(ui, "Must Always", &mut w.must_always, "Add rule");
+        });
     });
+
+    ui.add_space(6.0);
+    if !state.world_locked {
+        if ui
+            .button("🔒 Lock In World")
+            .on_hover_text("Lock world fields until reset")
+            .clicked()
+        {
+            state.world_locked = true;
+        }
+    } else if ui
+        .button("🔓 Unlock World")
+        .on_hover_text("Unlock world fields for editing")
+        .clicked()
+    {
+        state.world_locked = false;
+    }
 }
 
 /* =========================
