@@ -2,61 +2,19 @@ use eframe::egui;
 use std::sync::mpsc::Sender;
 
 use crate::engine::protocol::EngineCommand;
-use crate::ui::app::{PartyMember, UiState, LeftTab};
+use crate::ui::app::{PartyMember, UiState};
 
 pub fn draw_left_panel(
     ctx: &egui::Context,
     ui_state: &mut UiState,
-    cmd_tx: &Sender<EngineCommand>,
+    _cmd_tx: &Sender<EngineCommand>,
 ) {
     egui::SidePanel::left("left")
         .resizable(false)
         .default_width(180.0)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut ui_state.left_tab, LeftTab::Settings, "Settings");
-                ui.selectable_value(&mut ui_state.left_tab, LeftTab::Party, "Party");
-                ui.selectable_value(&mut ui_state.left_tab, LeftTab::Options, "Options");
-            });
-
-            ui.separator();
-
             egui::ScrollArea::vertical().show(ui, |ui| {
-                match ui_state.left_tab {
-                    LeftTab::Settings => {
-                        ui.label("UI Scale");
-                        if ui.add(
-    egui::Slider::new(&mut ui_state.ui_scale, 0.75..=2.0)
-        .text("Scale"),
-).changed() {
-    ui_state.save_config();
-}
-
-                    }
-
-                    LeftTab::Party => {
-                        draw_party(ui, ui_state);
-                    }
-
-                    LeftTab::Options => {
-                        if ui.button("🔌 Connect to LM Studio").clicked() {
-                            let _ = cmd_tx.send(EngineCommand::ConnectToLlm);
-                        }
-
-                        ui.add_space(6.0);
-
-                        let status_color = if ui_state.llm_connected {
-                            egui::Color32::GREEN
-                        } else {
-                            egui::Color32::RED
-                        };
-
-                        ui.label(
-                            egui::RichText::new(&ui_state.llm_status)
-                                .color(status_color),
-                        );
-                    }
-                }
+                draw_party(ui, ui_state);
             });
         });
 }

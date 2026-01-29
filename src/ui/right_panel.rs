@@ -2,15 +2,20 @@ use eframe::egui;
 use std::sync::mpsc::Sender;
 
 use crate::engine::protocol::EngineCommand;
-use super::app::{editable_list, RightTab, UiState};
+use crate::ui::app::{RightTab, UiState};
 
-
-pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState, cmd_tx: &Sender<EngineCommand>,) {
+/// Draws the right-hand panel for editing Player or World info.
+pub fn draw_right_panel(
+    ctx: &egui::Context,
+    ui_state: &mut UiState,
+    cmd_tx: &Sender<EngineCommand>,
+) {
     egui::SidePanel::right("right_panel")
         .resizable(true)
         .default_width(340.0)
         .min_width(260.0)
         .show(ctx, |ui| {
+            // Tab selector
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut ui_state.right_tab, RightTab::Player, "Player");
                 ui.selectable_value(&mut ui_state.right_tab, RightTab::World, "World");
@@ -20,7 +25,7 @@ pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState, cmd_tx: &Se
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 match ui_state.right_tab {
-                    RightTab::Player => draw_character(ui, ui_state),
+                    RightTab::Player => draw_player(ui, ui_state),
                     RightTab::World => draw_world(ui, ui_state, cmd_tx),
                 }
             });
@@ -28,13 +33,13 @@ pub fn draw_right_panel(ctx: &egui::Context, ui_state: &mut UiState, cmd_tx: &Se
 }
 
 /* =========================
-   Character UI
+   Player UI
    ========================= */
 
-fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
+fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
     ui.heading("Character");
 
-    // ---- buttons FIRST (no character borrow yet)
+    // Save / Load buttons
     let mut do_save = false;
     let mut do_load = false;
 
@@ -51,54 +56,46 @@ fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
         state.save_character();
     }
     if do_load {
-        state.load_character();
+        if let Some(c) = UiState::load_character_from_dialog() {
+            state.character = c;
+        }
     }
 
     ui.separator();
 
-    // ---- NOW borrow character
     let c = &mut state.character;
 
-    ui.label("Name");
-    ui.text_edit_singleline(&mut c.name);
+    ui.collapsing("Details", |ui| {
+        ui.label("Name");
+        ui.text_edit_singleline(&mut c.name);
 
-    ui.label("Class");
-    ui.text_edit_singleline(&mut c.class);
+        ui.label("Class");
+        ui.text_edit_singleline(&mut c.class);
 
-    ui.collapsing("Background", |ui| {
+        ui.label("Background");
         ui.text_edit_multiline(&mut c.background);
     });
 
     ui.collapsing("Stats", |ui| {
-        let mut to_remove: Option<String> = None;
-
-        let keys: Vec<String> = c.stats.keys().cloned().collect();
-        for key in keys {
-            if let Some(value) = c.stats.get_mut(&key) {
+        let mut remove_key: Option<String> = None;
+        for key in c.stats.keys().cloned().collect::<Vec<_>>() {
+            if let Some(val) = c.stats.get_mut(&key) {
                 ui.horizontal(|ui| {
                     ui.label(&key);
-                    ui.add(egui::DragValue::new(value).speed(1));
+                    ui.add(egui::DragValue::new(val).speed(1));
                     if ui.small_button("❌").clicked() {
-                        to_remove = Some(key.clone());
+                        remove_key = Some(key.clone());
                     }
                 });
             }
         }
-
-        if let Some(key) = to_remove {
+        if let Some(key) = remove_key {
             c.stats.remove(&key);
         }
 
-        ui.separator();
-
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut state.new_stat_name);
-            ui.add(
-                egui::DragValue::new(&mut state.new_stat_value)
-                    .speed(1)
-                    .clamp_range(0..=999),
-            );
-
+            ui.add(egui::DragValue::new(&mut state.new_stat_value).speed(1).range(0..=999));
             if ui.button("Add").clicked() {
                 let name = state.new_stat_name.trim();
                 if !name.is_empty() && !c.stats.contains_key(name) {
@@ -110,21 +107,24 @@ fn draw_character(ui: &mut egui::Ui, state: &mut UiState) {
         });
     });
 
-    list(ui, "Powers", &c.powers);
-    list(ui, "Features & Boons", &c.features);
-    list(ui, "Inventory", &c.inventory);
-}
+    ui.collapsing("Powers", |ui| {
+        editable_list(ui, "Powers", &mut c.powers, "Add power");
+    });
 
+    ui.collapsing("Features & Boons", |ui| {
+        editable_list(ui, "Features & Boons", &mut c.features, "Add feature");
+    });
+
+    ui.collapsing("Inventory", |ui| {
+        editable_list(ui, "Inventory", &mut c.inventory, "Add item");
+    });
+}
 
 /* =========================
    World UI
    ========================= */
 
-fn draw_world(
-    ui: &mut egui::Ui,
-    state: &mut UiState,
-    cmd_tx: &Sender<EngineCommand>,
-) {
+fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineCommand>) {
     ui.heading("World Definition");
 
     let mut do_save = false;
@@ -146,8 +146,6 @@ fn draw_world(
     if do_load {
         if let Some(world) = UiState::load_world_from_dialog() {
             state.world = world.clone();
-
-            // 🔥 THIS is the semantic world-init event
             let _ = cmd_tx.send(EngineCommand::InitializeNarrative {
                 opening_message: world.opening_message.clone(),
             });
@@ -172,19 +170,18 @@ fn draw_world(
     });
 
     ui.collapsing("Themes", |ui| {
-        editable_list(ui, &mut w.themes, "Add theme");
+        editable_list(ui, "Themes", &mut w.themes, "Add theme");
     });
 
     ui.collapsing("Tone", |ui| {
-        editable_list(ui, &mut w.tone, "Add tone");
+        editable_list(ui, "Tone", &mut w.tone, "Add tone");
     });
 
     ui.collapsing("Narration & Style", |ui| {
         ui.label("Narrator Role");
         ui.text_edit_multiline(&mut w.narrator_role);
-
         ui.separator();
-        editable_list(ui, &mut w.style_guidelines, "Add guideline");
+        editable_list(ui, "Style Guidelines", &mut w.style_guidelines, "Add guideline");
     });
 
     ui.collapsing("Opening Message", |ui| {
@@ -193,27 +190,45 @@ fn draw_world(
 
     ui.collapsing("Hard Constraints", |ui| {
         ui.label("Must NOT");
-        editable_list(ui, &mut w.must_not, "Add restriction");
+        editable_list(ui, "Must Not", &mut w.must_not, "Add restriction");
 
         ui.separator();
         ui.label("Must ALWAYS");
-        editable_list(ui, &mut w.must_always, "Add rule");
+        editable_list(ui, "Must Always", &mut w.must_always, "Add rule");
     });
 }
 
-
 /* =========================
-   Helpers
+   Helper for editable string lists
    ========================= */
 
-fn list(ui: &mut egui::Ui, label: &str, items: &Vec<String>) {
-    ui.collapsing(label, |ui| {
-        if items.is_empty() {
-            ui.label("None");
-        } else {
-            for i in items {
-                ui.label(format!("• {i}"));
+fn editable_list(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, placeholder: &str) {
+    let mut remove_index: Option<usize> = None;
+    for i in 0..items.len() {
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut items[i]);
+            if ui.small_button("❌").clicked() {
+                remove_index = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove_index {
+        items.remove(i);
+    }
+
+    ui.horizontal(|ui| {
+        let id = ui.make_persistent_id(("editable_list_new_item", label));
+        let mut new_item = ui
+            .data_mut(|d| d.get_persisted::<String>(id))
+            .unwrap_or_default();
+        ui.add(egui::TextEdit::singleline(&mut new_item).hint_text(placeholder));
+        if ui.button("➕").clicked() {
+            let trimmed = new_item.trim();
+            if !trimmed.is_empty() {
+                items.push(trimmed.to_string());
+                new_item.clear();
             }
         }
+        ui.data_mut(|d| d.insert_persisted(id, new_item));
     });
 }

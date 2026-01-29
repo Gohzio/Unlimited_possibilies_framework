@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::Layout;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -7,15 +7,16 @@ use std::sync::mpsc;
 use std::fs;
 use rfd::FileDialog;
 
+
 use super::left_panel::draw_left_panel;
 use super::center_panel::draw_center_panel;
 use super::right_panel::draw_right_panel;
 
 use crate::engine::engine::Engine;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
-use crate::model::event_result::EventApplyOutcome;
+
 use crate::model::game_state::GameStateSnapshot;
-use crate::model::message::{Message, RoleplaySpeaker};
+use crate::model::message::{Message,};
 use crate::model::game_context::GameContext;
 
 /* =========================
@@ -86,7 +87,7 @@ impl Default for CharacterDefinition {
         Self {
             name: "Unnamed Hero".into(),
             class: "Adventurer".into(),
-            background: "Describe your character’s origin, motivations, and past.".into(),
+            background: "Describe your character’s origin.".into(),
             stats,
             powers: vec!["Basic combat training".into()],
             features: vec![],
@@ -99,37 +100,37 @@ impl Default for CharacterDefinition {
    Party
    ========================= */
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PartyMember {
     pub name: String,
     pub role: String,
     pub notes: String,
 }
 
-impl Default for PartyMember {
-    fn default() -> Self {
-        Self {
-            name: "New Companion".into(),
-            role: "Companion".into(),
-            notes: "Describe this character.".into(),
-        }
-    }
-}
 
 /* =========================
-   Tabs
+   Speaker Colors
    ========================= */
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeftTab {
-    Settings,
-    Party,
-    Options,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpeakerColors {
+    pub player: SerializableColor,
+    pub narrator: SerializableColor,
+    pub npc: SerializableColor,
+    pub party: SerializableColor,
+    pub system: SerializableColor,
 }
 
-impl Default for LeftTab {
+
+impl Default for SpeakerColors {
     fn default() -> Self {
-        LeftTab::Settings
+        Self {
+            player: SerializableColor { r: 120, g: 200, b: 255, a: 255 },
+            narrator: SerializableColor { r: 220, g: 220, b: 220, a: 255 },
+            npc: SerializableColor { r: 255, g: 180, b: 120, a: 255 },
+            party: SerializableColor { r: 160, g: 255, b: 160, a: 255 },
+            system: SerializableColor { r: 255, g: 120, b: 120, a: 255 },
+        }
     }
 }
 
@@ -139,179 +140,145 @@ pub enum RightTab {
     World,
 }
 
-impl Default for RightTab {
-    fn default() -> Self {
-        RightTab::Player
-    }
-}
-
 /* =========================
    UI State
    ========================= */
 
 pub struct UiState {
     pub input_text: String,
-    pub selected_llm_path: Option<PathBuf>,
     pub rendered_messages: Vec<Message>,
     pub snapshot: Option<GameStateSnapshot>,
-
-    pub new_stat_name: String,
-    pub new_stat_value: i32,
 
     pub ui_scale: f32,
     pub should_auto_scroll: bool,
 
-    pub left_tab: LeftTab,
-    pub right_tab: RightTab,
-
     pub world: WorldDefinition,
     pub character: CharacterDefinition,
     pub party: Vec<PartyMember>,
+
+    pub speaker_colors: SpeakerColors,
+
+    pub show_settings: bool,
+    pub show_options: bool,
+
     pub llm_connected: bool,
     pub llm_status: String,
+
+    pub right_tab: RightTab,      // NEW: track which right panel tab is active
+    pub new_stat_name: String,    // NEW: for adding new stats
+    pub new_stat_value: i32,      // NEW: for adding new stats
 }
 
-/* ---------- UiState Persistence ---------- */
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            input_text: String::new(),
+            rendered_messages: Vec::new(),
+            snapshot: None,
+
+            ui_scale: 1.0,
+            should_auto_scroll: true,
+
+            world: WorldDefinition::default(),
+            character: CharacterDefinition::default(),
+            party: Vec::new(),
+
+            speaker_colors: SpeakerColors::default(),
+
+            show_settings: false,
+            show_options: false,
+
+            llm_connected: false,
+            llm_status: "Not connected".into(),
+
+            right_tab: RightTab::Player, // NEW: default tab
+            new_stat_name: String::new(),
+            new_stat_value: 10,
+        }
+    }
+}
 
 impl UiState {
+    pub fn save_character(&self) {
+        let Some(path) = FileDialog::new()
+            .add_filter("Character", &["json"])
+            .set_file_name("character.json")
+            .save_file()
+        else {
+            return;
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&self.character) {
+            let _ = fs::write(path, json);
+        }
+    }
+
+    pub fn load_character_from_dialog() -> Option<CharacterDefinition> {
+        let path = FileDialog::new()
+            .add_filter("Character", &["json"])
+            .pick_file()?;
+        let data = fs::read_to_string(path).ok()?;
+        serde_json::from_str::<CharacterDefinition>(&data).ok()
+    }
+
     pub fn save_world(&self) {
-        if let Some(path) = FileDialog::new()
-            .set_title("Save World")
-            .add_filter("World JSON", &["json"])
+        let Some(path) = FileDialog::new()
+            .add_filter("World", &["json"])
             .set_file_name("world.json")
             .save_file()
-        {
-            if let Ok(json) = serde_json::to_string_pretty(&self.world) {
-                let _ = fs::write(path, json);
-            }
+        else {
+            return;
+        };
+        if let Ok(json) = serde_json::to_string_pretty(&self.world) {
+            let _ = fs::write(path, json);
         }
     }
 
     pub fn load_world_from_dialog() -> Option<WorldDefinition> {
-    if let Some(path) = FileDialog::new()
-        .set_title("Load World")
-        .add_filter("World JSON", &["json"])
-        .pick_file()
-    {
-        if let Ok(data) = fs::read_to_string(path) {
-            if let Ok(world) = serde_json::from_str(&data) {
-                return Some(world);
-            }
-        }
-    }
-    None
-}
-
-
-    pub fn save_character(&self) {
-        if let Some(path) = FileDialog::new()
-            .set_title("Save Character")
-            .add_filter("Character JSON", &["json"])
-            .set_file_name("character.json")
-            .save_file()
-        {
-            if let Ok(json) = serde_json::to_string_pretty(&self.character) {
-                let _ = fs::write(path, json);
-            }
-        }
-    }
-
-    pub fn load_character(&mut self) {
-        if let Some(path) = FileDialog::new()
-            .set_title("Load Character")
-            .add_filter("Character JSON", &["json"])
-            .pick_file()
-        {
-            if let Ok(data) = fs::read_to_string(path) {
-                if let Ok(character) = serde_json::from_str(&data) {
-                    self.character = character;
-                }
-            }
-        }
-    }
-        pub fn load_config(&mut self) {
-        let path = config_path();
-        if let Ok(data) = fs::read_to_string(path) {
-            if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
-                self.ui_scale = cfg.ui_scale;
-            }
-        }
-    }
-
-    pub fn save_config(&self) {
-        let cfg = AppConfig {
-            ui_scale: self.ui_scale,
-        };
-
-        if let Ok(json) = serde_json::to_string_pretty(&cfg) {
-            let _ = fs::write(config_path(), json);
-        }
+        let path = FileDialog::new()
+            .add_filter("World", &["json"])
+            .pick_file()?;
+        let data = fs::read_to_string(path).ok()?;
+        serde_json::from_str::<WorldDefinition>(&data).ok()
     }
 }
+/* =========================
+   Config
+   ========================= */
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub ui_scale: f32,
+    pub speaker_colors: SpeakerColors,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             ui_scale: 1.0,
+            speaker_colors: SpeakerColors::default(),
         }
     }
 }
-
-
-/* =========================
-   Theme
-   ========================= */
-
-#[derive(Clone)]
-struct Theme {
-    user: egui::Color32,
-    narrator: egui::Color32,
-    npc: egui::Color32,
-    party_member: egui::Color32,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct SerializableColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            user: egui::Color32::from_rgb(40, 70, 120),
-            narrator: egui::Color32::from_rgb(80, 80, 80),
-            npc: egui::Color32::from_rgb(40, 90, 60),
-            party_member: egui::Color32::from_rgb(90, 60, 40),
-        }
-    }
-}
-impl Default for UiState {
-    fn default() -> Self {
-        Self {
-            input_text: String::new(),
-            selected_llm_path: None,
-            rendered_messages: Vec::new(),
-            snapshot: None,
-
-            new_stat_name: String::new(),
-            new_stat_value: 0,
-
-            ui_scale: 1.0,
-            should_auto_scroll: true,
-
-            left_tab: LeftTab::default(),
-            right_tab: RightTab::default(),
-
-            world: WorldDefinition::default(),
-            character: CharacterDefinition::default(),
-            party: Vec::new(),
-
-            llm_connected: false,
-            llm_status: "Not connected".into(),
-        }
+impl From<SerializableColor> for egui::Color32 {
+    fn from(c: SerializableColor) -> Self {
+        egui::Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a)
     }
 }
 
+impl From<egui::Color32> for SerializableColor {
+    fn from(c: egui::Color32) -> Self {
+        let [r, g, b, a] = c.to_array();
+        Self { r, g, b, a }
+    }
+}
 
 /* =========================
    App
@@ -319,8 +286,6 @@ impl Default for UiState {
 
 pub struct MyApp {
     pub ui: UiState,
-    theme: Theme,
-
     cmd_tx: mpsc::Sender<EngineCommand>,
     resp_rx: mpsc::Receiver<EngineResponse>,
 }
@@ -335,21 +300,10 @@ impl MyApp {
             engine.run();
         });
 
-let mut ui = UiState {
-    ui_scale: 1.0,
-    ..Default::default()
-};
+        let mut ui = UiState::default();
+        load_config(&mut ui);
 
-// 👇 THIS was missing
-ui.load_config();
-
-Self {
-    ui,
-    theme: Theme::default(),
-    cmd_tx,
-    resp_rx,
-}
-
+        Self { ui, cmd_tx, resp_rx }
     }
 
     pub fn send_command(&self, cmd: EngineCommand) {
@@ -365,31 +319,6 @@ Self {
             snapshot: self.ui.snapshot.clone(),
         }
     }
-
-    pub fn draw_message(&self, ui: &mut egui::Ui, msg: &Message) {
-        let (bg, right, text) = match msg {
-            Message::User(t) => (self.theme.user, true, format!("You: {t}")),
-            Message::Roleplay { speaker, text } => {
-                let c = match speaker {
-                    RoleplaySpeaker::Narrator => self.theme.narrator,
-                    RoleplaySpeaker::Npc => self.theme.npc,
-                    RoleplaySpeaker::PartyMember => self.theme.party_member,
-                };
-                (c, false, text.clone())
-            }
-            Message::System(t) => (egui::Color32::DARK_GRAY, false, t.clone()),
-        };
-
-        ui.add_space(6.0);
-
-        if right {
-            ui.with_layout(Layout::right_to_left(egui::Align::TOP), |ui| {
-                bubble(ui, bg, &text);
-            });
-        } else {
-            bubble(ui, bg, &text);
-        }
-    }
 }
 
 /* =========================
@@ -400,95 +329,129 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         ctx.set_pixels_per_point(self.ui.ui_scale);
 
-while let Ok(resp) = self.resp_rx.try_recv() {
-    match resp {
-        EngineResponse::FullMessageHistory(msgs) => {
-            self.ui.rendered_messages = msgs;
-            self.ui.should_auto_scroll = true;
-        }
-
-        EngineResponse::NarrativeApplied { report, snapshot } => {
-            self.ui.snapshot = Some(snapshot);
-            for a in report.applications {
-                let t = match a.outcome {
-                    EventApplyOutcome::Applied =>
-                        format!("✔ Applied: {}", a.event.short_name()),
-                    EventApplyOutcome::Rejected { reason } =>
-                        format!("❌ Rejected: {}\n{}", a.event.short_name(), reason),
-                    EventApplyOutcome::Deferred { reason } =>
-                        format!("⚠ Deferred: {}\n{}", a.event.short_name(), reason),
-                };
-                self.ui.rendered_messages.push(Message::System(t));
+        while let Ok(resp) = self.resp_rx.try_recv() {
+            match resp {
+                EngineResponse::FullMessageHistory(msgs) => {
+                    self.ui.rendered_messages = msgs;
+                    self.ui.should_auto_scroll = true;
+                }
+                EngineResponse::NarrativeApplied { report, snapshot } => {
+                    self.ui.snapshot = Some(snapshot);
+                    for a in report.applications {
+                        let t = format!("{:?}", a.outcome);
+                        self.ui.rendered_messages.push(Message::System(t));
+                    }
+                }
+                EngineResponse::LlmConnectionResult { success, message } => {
+                    self.ui.llm_connected = success;
+                    self.ui.llm_status = message;
+                }
             }
-            self.ui.should_auto_scroll = true;
         }
-
-        EngineResponse::LlmConnectionResult { success, message } => {
-            self.ui.llm_connected = success;
-            self.ui.llm_status = message;
-            self.ui.should_auto_scroll = true;
-        }
-    }
-}
-
 
         draw_left_panel(ctx, &mut self.ui, &self.cmd_tx);
-
         draw_right_panel(ctx, &mut self.ui, &self.cmd_tx);
         draw_center_panel(ctx, self);
 
-        self.ui.should_auto_scroll = false;
+        draw_settings_window(ctx, &mut self.ui);
+        draw_options_window(ctx, &mut self.ui, &self.cmd_tx);
     }
 }
 
 /* =========================
-   Shared UI Helpers
+   Settings / Options Windows
    ========================= */
 
-pub fn editable_list(ui: &mut egui::Ui, items: &mut Vec<String>, hint: &str) {
-    let mut to_remove: Option<usize> = None;
-    let mut new_item = String::new();
+fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
+    let mut open = ui_state.show_settings;
 
-    for (i, item) in items.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(item);
-            if ui.small_button("❌").clicked() {
-                to_remove = Some(i);
+    egui::Window::new("⚙ Settings")
+        .open(&mut open)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.label("UI Scale");
+            ui.add(egui::Slider::new(&mut ui_state.ui_scale, 0.75..=1.5));
+
+            ui.separator();
+            ui.heading("Speaker Colors");
+
+            color_picker(ui, "Player", &mut ui_state.speaker_colors.player);
+            color_picker(ui, "Narrator", &mut ui_state.speaker_colors.narrator);
+            color_picker(ui, "NPC", &mut ui_state.speaker_colors.npc);
+            color_picker(ui, "Party", &mut ui_state.speaker_colors.party);
+            color_picker(ui, "System", &mut ui_state.speaker_colors.system);
+
+            if ui.button("Save").clicked() {
+                save_config(ui_state);
             }
         });
-    }
 
-    if let Some(i) = to_remove {
-        items.remove(i);
-    }
+    ui_state.show_settings = open;
+}
 
-    ui.separator();
+fn draw_options_window(
+    ctx: &egui::Context,
+    ui_state: &mut UiState,
+    cmd_tx: &mpsc::Sender<EngineCommand>,
+) {
+    egui::Window::new("🛠 Options")
+        .open(&mut ui_state.show_options)
+        .show(ctx, |ui| {
+            if ui.button("🔌 Connect to LM Studio").clicked() {
+                let _ = cmd_tx.send(EngineCommand::ConnectToLlm);
+            }
 
+            ui.add_space(6.0);
+
+            let status_color = if ui_state.llm_connected {
+                egui::Color32::GREEN
+            } else {
+                egui::Color32::RED
+            };
+
+            ui.label(egui::RichText::new(&ui_state.llm_status).color(status_color));
+            ui.separator();
+            ui.label("Advanced / Debug options will live here.");
+        });
+}
+
+/* =========================
+   Config Helpers
+   ========================= */
+
+fn color_picker(ui: &mut egui::Ui, label: &str, color: &mut SerializableColor) {
+    let mut temp: egui::Color32 = (*color).into();
     ui.horizontal(|ui| {
-        ui.add_sized(
-            [200.0, 20.0],
-            egui::TextEdit::singleline(&mut new_item).hint_text(hint),
-        );
-
-        if ui.button("Add").clicked() && !new_item.trim().is_empty() {
-            items.push(new_item);
+        ui.label(label);
+        if ui.color_edit_button_srgba(&mut temp).changed() {
+            *color = temp.into();
         }
     });
 }
 
-fn bubble(ui: &mut egui::Ui, color: egui::Color32, text: &str) {
-    egui::Frame::none()
-        .fill(color)
-        .corner_radius(egui::CornerRadius::same(8))
-        .inner_margin(egui::Margin::symmetric(10, 6))
-        .show(ui, |ui| {
-            ui.label(egui::RichText::new(text).color(egui::Color32::WHITE));
-        });
-}
 fn config_path() -> PathBuf {
     let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
     path.push("UnlimitedRPG");
     fs::create_dir_all(&path).ok();
     path.push("config.json");
     path
+}
+
+pub(crate) fn save_config(ui: &UiState) {
+    let cfg = AppConfig {
+        ui_scale: ui.ui_scale,
+        speaker_colors: ui.speaker_colors.clone(),
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&cfg) {
+        let _ = fs::write(config_path(), json);
+    }
+}
+
+fn load_config(ui: &mut UiState) {
+    if let Ok(data) = fs::read_to_string(config_path()) {
+        if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
+            ui.ui_scale = cfg.ui_scale;
+            ui.speaker_colors = cfg.speaker_colors;
+        }
+    }
 }
