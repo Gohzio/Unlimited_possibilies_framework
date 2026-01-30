@@ -1,143 +1,89 @@
-# 🜂 Narrative Engine RPG 🜂  
-*A local-first, LLM-powered roleplaying engine with persistent worlds*
+# Narrative Engine RPG
 
-> **Status:** Actively evolving ⚙️  
-> **Mood:** Dangerous ideas, rapid iteration  
-> **Core Goal:** Let an LLM act as a world, not a chatbot.
+Local-first, LLM-driven desktop RPG engine built in Rust + egui.
 
----
+## Build Instructions (Windows, Linux, macOS)
 
-## ✨ What This Is
+These steps build the desktop app from source.
 
-A desktop RPG engine built in **Rust + egui**, designed to:
+### Prerequisites (all platforms)
 
-- Treat the LLM as a **narrative actor**
-- Maintain a **persistent internal world state**
-- Separate **story intent** from **mechanical consequences**
-- Allow deep player/world customization via **JSON**
-- Stay fully **offline / local-first** (LM Studio compatible)
+- Rust toolchain (stable) with Cargo
+- Git
 
-This is *not* a chat UI.  
-It’s a **story engine**.
+Verify:
 
----
+```bash
+rustc --version
+cargo --version
+git --version
+```
 
-## 🧭 Roadmap / TODO List
+### Linux
 
-### 🧠 Core Narrative Engine
-- [ ] **Expand narrative event system**
-  - [ ] `combat`
-  - [ ] `dialogue`
-  - [ ] `travel`
-  - [ ] `rest`
-  - [ ] `spawn_loot` (currently missing ❌)
-  - [ ] `currency_change`
-  - [ ] `npc_spawn`
-  - [ ] `npc_join_party`
-  - [ ] `npc_leave_party`
-  - [ ] `relationship_change`
-- [ ] Graceful handling of **unknown / future events**
-- [ ] Separate **narrative-only** vs **state-mutating** events cleanly
+1) Install system deps for egui/eframe (X11/Wayland and OpenGL):
 
----
+Examples:
+- Debian/Ubuntu: `libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config`
+- Fedora: `libX11-devel libxkbcommon-devel wayland-devel mesa-libGL-devel pkgconf`
 
-### 🎭 Narrative Presentation
-- [ ] **Speaker-based text colors**
-  - Player
-  - Narrator
-  - NPCs
-  - System
-- [ ] *Italic formatting for emotions / internal thoughts*
-- [ ] Better spacing & flow for long narrative passages
-- [ ] Remove empty message artifacts from partial LLM outputs
+2) Clone and build:
 
----
+```bash
+git clone <REPO_URL>
+cd Unlimited_possibilies_framework
+cargo build --release
+```
 
-### 👤 Player Creation & Editing
-- [ ] Fix Player Creation Panel
-  - [ ] Edit **stats**
-  - [ ] Edit **powers**
-  - [ ] Edit **features**
-  - [ ] Edit **inventory**
-- [ ] Remove reliance on **manual JSON editing**
-- [ ] Live validation of player config
-- [ ] Preview player summary before starting session
+3) Run:
 
----
+```bash
+./target/release/Unlimited_possibilities_framework
+```
 
-### 🧑‍🤝‍🧑 Party System
-- [ ] Allow NPCs to be added as **party members**
-- [ ] Party tab auto-updates from narrative events
-- [ ] Expand Party tab UI
-- [ ] Button to generate **Text → Image prompt** per party member
-  - (For use in external image generation tools)
-- [ ] Individual party member sheets
-- [ ] Party-wide status effects
+### macOS
 
----
+1) Install Rust (and Xcode Command Line Tools if prompted).
 
-### 📜 World & NPC Management
-- [ ] **Local NPC Tab** (Left panel)
-  - [ ] Persistent NPCs not in party
-  - [ ] Relationship tracking
-  - [ ] Known locations & factions
-- [ ] World state auto-expands as LLM introduces new concepts
+2) Clone and build:
 
----
+```bash
+git clone <REPO_URL>
+cd Unlimited_possibilies_framework
+cargo build --release
+```
 
-### 🎒 Items, Loot & Economy
-- [ ] Functional **loot drops**
-- [ ] Currency system
-  - [ ] Gold / credits / setting-based currency
-  - [ ] Add / remove / spend events
-- [ ] Inventory stacking & descriptions
-- [ ] Item rarity & flavor text
+3) Run:
 
----
+```bash
+./target/release/Unlimited_possibilities_framework
+```
 
-### 📈 Progression
-- [ ] XP bar
-- [ ] Level-up system
-- [ ] Level-up events emitted by LLM
-- [ ] Stat growth & perk unlocks
+### Windows
 
----
+1) Install Rust with the MSVC toolchain.
+2) Install the Visual Studio Build Tools (C++ build tools).
 
-### 💾 Persistence
-- [ ] **Save Session** button
-- [ ] Load previous sessions
-- [ ] Autosave checkpoints
-- [ ] Session metadata (last played, world name, player name)
+3) Clone and build (PowerShell):
 
----
+```powershell
+git clone <REPO_URL>
+cd Unlimited_possibilies_framework
+cargo build --release
+```
 
-### 🧪 LLM Integration
-- [ ] LLM-driven **power creation**
-- [ ] LLM-assisted item descriptions
-- [ ] LLM-assisted NPC backstories
-- [ ] Better prompt contracts for dual-output:
-  - Narrative text
-  - Structured events JSON
+4) Run:
 
----
+```powershell
+.\target\release\Unlimited_possibilities_framework.exe
+```
 
-### 🖼️ Immersion Features
-- [ ] Embed JSON metadata into uploaded **PNG images**
-  - Player portraits
-  - NPC portraits
-  - World maps
-- [ ] Read embedded metadata back into the engine
-- [ ] Visual identity tied directly to game state
+### Optional: Cross-compile Windows from Linux/macOS
 
----
-
-### 🖥️ UI / UX Polish
-- [ ] Confine center text strictly to center panel
-- [ ] Copy/paste support everywhere (✅ mostly there)
-- [ ] Font scaling **independent of UI scaling**
-- [ ] Move settings/options to **compact icon buttons**
-- [ ] Reduce visual noise
-- [ ] Improve scroll behavior in long sessions
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo build --release --target x86_64-pc-windows-msvc
+```
 
 ---
 
