@@ -40,6 +40,25 @@ pub fn parse_narrative(narrative: &str) -> Vec<Message> {
             }
         }
 
+        // [Name] (treat as NPC for common LLM tags like [GUARD], [SMITH])
+        if let Some(rest) = line.strip_prefix('[') {
+            if let Some((tag, text)) = rest.split_once(']') {
+                let tag = tag.trim();
+                let text = text.trim();
+                if !tag.is_empty()
+                    && !text.is_empty()
+                    && !tag.eq_ignore_ascii_case("narrator")
+                    && !tag.eq_ignore_ascii_case("system")
+                {
+                    messages.push(Message::Roleplay {
+                        speaker: RoleplaySpeaker::Npc,
+                        text: format!("{}: {}", tag, text),
+                    });
+                    continue;
+                }
+            }
+        }
+
         // Fallback
         messages.push(Message::Roleplay {
             speaker: RoleplaySpeaker::Narrator,

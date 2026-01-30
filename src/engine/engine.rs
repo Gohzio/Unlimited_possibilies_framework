@@ -524,6 +524,9 @@ fn build_requested_context(
             "npcs" => {
                 push_section(&mut out, "NPCS", &format_npcs(state));
             }
+            "locations" | "location" => {
+                push_section(&mut out, "LOCATIONS", &load_locations_context());
+            }
             "relationships" => {
                 push_section(&mut out, "RELATIONSHIPS", &format_relationships(state));
             }
@@ -549,6 +552,18 @@ fn build_requested_context(
     }
 
     out
+}
+
+fn load_locations_context() -> String {
+    let path = std::path::Path::new("data/locations.json");
+    match std::fs::read_to_string(path) {
+        Ok(data) => data,
+        Err(err) => format!(
+            "No locations file available at {} ({})",
+            path.display(),
+            err
+        ),
+    }
 }
 
 fn push_section(out: &mut String, title: &str, body: &str) {
@@ -737,7 +752,8 @@ fn format_npcs(state: &InternalGameState) -> String {
     }
     let mut s = String::new();
     for npc in state.npcs.values() {
-        s.push_str(&format!("- {} ({})\n", npc.name, npc.role));
+        let status = if npc.nearby { "nearby" } else { "away" };
+        s.push_str(&format!("- {} ({}) [{}]\n", npc.name, npc.role, status));
     }
     s
 }

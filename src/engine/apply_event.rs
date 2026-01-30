@@ -72,6 +72,7 @@ pub fn apply_event(
                     name,
                     role,
                     notes: details.unwrap_or_default(),
+                    nearby: true,
                 },
             );
 
@@ -115,6 +116,56 @@ pub fn apply_event(
             EventApplyOutcome::Applied
         }
 
+        NarrativeEvent::NpcUpdate {
+            id,
+            name,
+            role,
+            details,
+        } => {
+            let entry = state.npcs.entry(id.clone()).or_insert(
+                crate::model::game_state::Npc {
+                    id,
+                    name: name.clone().unwrap_or_else(|| "Unknown".to_string()),
+                    role: role.clone().unwrap_or_else(|| "Unknown".to_string()),
+                    notes: String::new(),
+                    nearby: true,
+                },
+            );
+            if let Some(name) = name {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    entry.name = trimmed.to_string();
+                }
+            }
+            if let Some(role) = role {
+                let trimmed = role.trim();
+                if !trimmed.is_empty() {
+                    entry.role = trimmed.to_string();
+                }
+            }
+            if let Some(details) = details {
+                let trimmed = details.trim();
+                if !trimmed.is_empty() && !entry.notes.contains(trimmed) {
+                    if !entry.notes.is_empty() {
+                        entry.notes.push_str(" | ");
+                    }
+                    entry.notes.push_str(trimmed);
+                }
+            }
+            entry.nearby = true;
+            EventApplyOutcome::Applied
+        }
+
+        NarrativeEvent::NpcDespawn { id, reason: _ } => {
+            if let Some(npc) = state.npcs.get_mut(&id) {
+                npc.nearby = false;
+                return EventApplyOutcome::Applied;
+            }
+            EventApplyOutcome::Deferred {
+                reason: format!("NPC '{}' not found", id),
+            }
+        }
+
         NarrativeEvent::NpcLeaveParty { id } => {
             let Some(member) = state.party.remove(&id) else {
                 return EventApplyOutcome::Rejected {
@@ -129,6 +180,7 @@ pub fn apply_event(
                     name: member.name,
                     role: member.role,
                     notes: String::new(),
+                    nearby: true,
                 },
             );
 

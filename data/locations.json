@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "notes": "This file is optional reference for locations, factions, and notable NPCs. The LLM can request it via request_context { topics: [\"locations\"] }.",
+  "locations": [
+    {
+      "id": "elysium_prime_gate",
+      "name": "Elysium Prime Gate",
+      "description": "The fortified entrance to Elysium Prime, watched by stern guards and merchants.",
+      "notable_npcs": [
+        {
+          "id": "guard_captain",
+          "name": "Guard Captain",
+          "role": "Gate commander",
+          "notes": "Wary of outsiders; values order."
+        }
+      ],
+      "details": [
+        "Travelers are inspected for contraband.",
+        "A posted notice lists current bounties."
+      ]
+    }
+  ]
+}

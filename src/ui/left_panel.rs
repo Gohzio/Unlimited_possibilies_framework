@@ -195,6 +195,9 @@ fn collect_local_npcs(state: &UiState) -> Vec<LocalNpc> {
 
     if let Some(snapshot) = &state.snapshot {
         for npc in &snapshot.npcs {
+            if !npc.nearby {
+                continue;
+            }
             map.insert(
                 npc.id.clone(),
                 LocalNpc {

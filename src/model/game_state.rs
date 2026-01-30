@@ -108,6 +108,12 @@ pub struct Npc {
     pub name: String,
     pub role: String,
     pub notes: String,
+    #[serde(default = "default_true")]
+    pub nearby: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

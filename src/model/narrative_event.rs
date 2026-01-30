@@ -76,6 +76,17 @@ pub enum NarrativeEvent {
         #[serde(alias = "notes")]
         details: Option<String>,
     },
+    NpcUpdate {
+        id: String,
+        name: Option<String>,
+        role: Option<String>,
+        #[serde(alias = "notes")]
+        details: Option<String>,
+    },
+    NpcDespawn {
+        id: String,
+        reason: Option<String>,
+    },
     NpcLeaveParty {
         id: String,
     },

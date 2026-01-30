@@ -47,6 +47,8 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
 - npc_spawn { id, name, role, details? }\n\
+- npc_update { id, name?, role?, details? }\n\
+- npc_despawn { id, reason? }\n\
 - npc_join_party { id, name?, role?, details? }\n\
 - npc_leave_party { id }\n\
 - relationship_change { subject_id, target_id, delta }\n\
@@ -63,8 +65,19 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - update_quest may send partial updates for sub_quests (id required)\n\n"
         );
         prompt.push_str(
+            "NPC Tracking:\n\
+- When a new NPC is introduced or speaks for the first time, emit npc_spawn with id, name, role, and details.\n\
+- When you learn new NPC facts (real name, title, favorite drink, habits), emit npc_update with details.\n\
+- When an NPC leaves the scene or the player walks away, emit npc_despawn { id }.\n\
+- Keep npc id stable (lowercase snake_case, e.g., guard_captain, smithy).\n\n"
+        );
+        prompt.push_str(
             "Request Context:\n\
 - If you need more data, emit request_context { topics: [\"topic1\", \"topic2\"] }\n\
+- You can request location lore with topic \"locations\".\n\
+- Common topics: world, loot_rules, player, stats, powers, features, inventory, weapons, armor, clothing,\n\
+  currencies, party, quests, npcs, relationships, flags, locations,\n\
+  slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission.\n\
 - Do NOT add narrative when requesting context\n\n"
         );
         prompt.push_str(
@@ -82,7 +95,10 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         if context.world.world_quests_enabled {
             prompt.push_str("- World quests are ENABLED.\n");
             prompt.push_str(
-                "- When the world offers a quest, include the exact line: \"*ding* the world is offering you a quest.\"\n",
+                "- When the world offers a quest, you MUST include the exact line: \"*ding* the world is offering you a quest.\"\n",
+            );
+            prompt.push_str(
+                "- Example world offer line: [NARRATOR] *ding* the world is offering you a quest.\n",
             );
             if context.world.world_quests_mandatory {
                 prompt.push_str(
@@ -102,13 +118,19 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         if context.world.npc_quests_enabled {
             prompt.push_str("- NPC quests are ENABLED.\n");
             prompt.push_str(
-                "- NPCs must explicitly say: \"I hereby offer you a quest.\" when offering.\n",
+                "- NPCs MUST explicitly say: \"I hereby offer you a quest.\" when offering.\n",
             );
             prompt.push_str(
                 "- Emit start_quest ONLY after the player explicitly accepts.\n",
             );
             prompt.push_str(
                 "- start_quest must include a title and rewards (can be an empty array).\n",
+            );
+            prompt.push_str(
+                "- Use the exact offer sentence verbatim (case/punctuation) so the app can detect it.\n",
+            );
+            prompt.push_str(
+                "- Example NPC offer line: [NPC: Smith] I hereby offer you a quest.\n",
             );
         } else {
             prompt.push_str("- NPC quests are DISABLED.\n");
@@ -392,6 +414,8 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
 - npc_spawn { id, name, role, details? }\n\
+- npc_update { id, name?, role?, details? }\n\
+- npc_despawn { id, reason? }\n\
 - npc_join_party { id, name?, role?, details? }\n\
 - npc_leave_party { id }\n\
 - relationship_change { subject_id, target_id, delta }\n\
@@ -400,6 +424,15 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - spawn_loot { item, quantity?, description? }\n\
 - currency_change { currency, delta }\n\
 - request_context { topics }\n\n"
+        );
+
+        prompt.push_str(
+            "Request Context:\n\
+- You can request location lore with topic \"locations\".\n\
+- Common topics: world, loot_rules, player, stats, powers, features, inventory, weapons, armor, clothing,\n\
+  currencies, party, quests, npcs, relationships, flags, locations,\n\
+  slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission.\n\
+- Do NOT add narrative when requesting context.\n\n"
         );
 
         prompt.push_str("Quest Rules:\n");
@@ -441,6 +474,14 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 
         prompt.push_str("WORLD TITLE:\n");
         prompt.push_str(&format!("{}\n\n", context.world.title));
+
+        prompt.push_str(
+            "NPC Tracking:\n\
+- When a new NPC is introduced or speaks for the first time, emit npc_spawn with id, name, role, and details.\n\
+- When you learn new NPC facts (real name, title, favorite drink, habits), emit npc_update with details.\n\
+- When an NPC leaves the scene or the player walks away, emit npc_despawn { id }.\n\
+- Keep npc id stable (lowercase snake_case, e.g., guard_captain, smithy).\n\n"
+        );
 
         if !requested_context.trim().is_empty() {
             prompt.push_str("REQUESTED CONTEXT:\n");
