@@ -146,6 +146,12 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         });
     });
 
+    ui.collapsing("Clothing", |ui| {
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            editable_list(ui, "Clothing", &mut c.clothing, "Add clothing item");
+        });
+    });
+
     ui.collapsing("Inventory", |ui| {
         ui.add_enabled_ui(!state.player_locked, |ui| {
             editable_list(ui, "Inventory", &mut c.inventory, "Add item");

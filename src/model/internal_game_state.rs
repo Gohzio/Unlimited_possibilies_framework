@@ -82,6 +82,7 @@ impl Default for InternalGameState {
                 level: 1,
                 hp: 100,
                 max_hp: 100,
+                clothing: Vec::new(),
             },
 
             stats,

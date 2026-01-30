@@ -51,6 +51,7 @@ pub fn apply_event(
                     name,
                     role,
                     hp: 100,
+                    clothing: Vec::new(),
                 },
             );
 
@@ -107,6 +108,7 @@ pub fn apply_event(
                     name,
                     role,
                     hp: 100,
+                    clothing: Vec::new(),
                 },
             );
 

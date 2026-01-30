@@ -34,6 +34,7 @@ pub struct PlayerState {
     pub level: u32,
     pub hp: i32,
     pub max_hp: i32,
+    pub clothing: Vec<String>,
 }
    
 
@@ -50,6 +51,7 @@ pub struct PartyMember {
     pub name: String,
     pub role: String,
     pub hp: i32,
+    pub clothing: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

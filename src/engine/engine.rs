@@ -246,6 +246,7 @@ pub fn run(&mut self) {
         }
     }
 }
+}
 
 fn is_pickup_all_command(text: &str) -> bool {
     let t = text.to_lowercase();
@@ -340,5 +341,4 @@ fn move_selected_loot_to_inventory(
 
     state.loot = remaining;
     (applications, moved_labels)
-}
 }

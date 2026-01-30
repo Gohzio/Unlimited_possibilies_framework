@@ -77,6 +77,8 @@ pub struct CharacterDefinition {
     pub powers: Vec<String>,
     pub features: Vec<String>,
     pub inventory: Vec<String>,
+    #[serde(default)]
+    pub clothing: Vec<String>,
 }
 
 impl Default for CharacterDefinition {
@@ -93,7 +95,8 @@ impl Default for CharacterDefinition {
             stats,
             powers: vec!["Basic combat training".into()],
             features: vec![],
-            inventory: vec!["Simple clothing".into()],
+            inventory: vec![],
+            clothing: vec!["Simple clothing".into()],
         }
     }
 }
@@ -108,6 +111,8 @@ pub struct PartyMember {
     pub name: String,
     pub role: String,
     pub details: String,
+    #[serde(default)]
+    pub clothing: Vec<String>,
 }
 
 
@@ -269,7 +274,7 @@ impl UiState {
             .add_filter("Character Json", &["json"])
             .pick_file()?;
 
-        match path.extension().and_then(|s| s.to_str()) {
+        let mut character = match path.extension().and_then(|s| s.to_str()) {
             Some(ext) if ext.eq_ignore_ascii_case("png") => {
                 let json = extract_character_json_from_png(&path)?;
                 if let Ok((width, height, rgba)) = load_image_rgba(&path) {
@@ -281,7 +286,10 @@ impl UiState {
                 let data = fs::read_to_string(path).ok()?;
                 serde_json::from_str::<CharacterDefinition>(&data).ok()
             }
-        }
+        }?;
+
+        migrate_character_clothing(&mut character);
+        Some(character)
     }
 
     pub fn save_world(&self) {
@@ -331,7 +339,7 @@ impl UiState {
             use crate::model::narrative_event::NarrativeEvent;
             match &app.event {
                 NarrativeEvent::AddPartyMember { id, name, role } => {
-                    self.upsert_party_member(Some(id), Some(name), Some(role), None);
+                    self.upsert_party_member(Some(id), Some(name), Some(role), None, None);
                 }
                 NarrativeEvent::NpcJoinParty { id, name, role, details } => {
                     self.upsert_party_member(
@@ -339,6 +347,7 @@ impl UiState {
                         name.as_deref(),
                         role.as_deref(),
                         details.as_deref(),
+                        None,
                     );
                 }
                 NarrativeEvent::NpcLeaveParty { id } => {
@@ -361,6 +370,7 @@ impl UiState {
                 Some(&member.name),
                 Some(&member.role),
                 None,
+                Some(&member.clothing),
             );
         }
     }
@@ -383,7 +393,7 @@ impl UiState {
                 continue;
             }
             let details = if body.is_empty() { None } else { Some(body) };
-            self.upsert_party_member(None, Some(name), None, details);
+            self.upsert_party_member(None, Some(name), None, details, None);
         }
     }
 
@@ -393,6 +403,7 @@ impl UiState {
         name: Option<&str>,
         role: Option<&str>,
         details: Option<&str>,
+        clothing: Option<&[String]>,
     ) {
         let mut index = None;
         if let Some(id) = id {
@@ -441,6 +452,11 @@ impl UiState {
                     }
                 }
             }
+            if let Some(clothing) = clothing {
+                if !clothing.is_empty() {
+                    member.clothing = clothing.to_vec();
+                }
+            }
         } else {
             if id.is_none() && name.map(|v| v.trim().is_empty()).unwrap_or(true) {
                 return;
@@ -450,9 +466,205 @@ impl UiState {
                 name: name_value.to_string(),
                 role: role_value.to_string(),
                 details: details.unwrap_or("").trim().to_string(),
+                clothing: clothing.unwrap_or(&[]).to_vec(),
             });
         }
     }
+}
+
+fn migrate_character_clothing(character: &mut CharacterDefinition) {
+    if !character.clothing.is_empty() {
+        return;
+    }
+
+    let mut remaining = Vec::new();
+    for item in character.inventory.drain(..) {
+        if looks_like_clothing(&item) {
+            character.clothing.push(item);
+        } else {
+            remaining.push(item);
+        }
+    }
+    character.inventory = remaining;
+}
+
+fn looks_like_clothing(item: &str) -> bool {
+    let item = item.to_lowercase();
+    let keywords = [
+        "clothing",
+        "underwear",
+        "bra",
+        "bras",
+        "lingerie",
+        "panties",
+        "briefs",
+        "boxers",
+        "boxer",
+        "thong",
+        "g-string",
+        "gstring",
+        "bikini",
+        "swimwear",
+        "swimsuit",
+        "swim suit",
+        "one-piece",
+        "one piece",
+        "two-piece",
+        "two piece",
+        "trunks",
+        "boardshorts",
+        "board shorts",
+        "rashguard",
+        "rash guard",
+        "socks",
+        "sock",
+        "stockings",
+        "tights",
+        "leggings",
+        "shirt",
+        "blouse",
+        "top",
+        "tee",
+        "t-shirt",
+        "tshirt",
+        "shirts",
+        "blouses",
+        "tops",
+        "tees",
+        "t-shirts",
+        "tshirts",
+        "sweater",
+        "jumper",
+        "hoodie",
+        "coat",
+        "overcoat",
+        "parka",
+        "scarf",
+        "shawl",
+        "sweaters",
+        "jumpers",
+        "hoodies",
+        "coats",
+        "overcoats",
+        "parkas",
+        "scarves",
+        "shawls",
+        "pants",
+        "jeans",
+        "trousers",
+        "shorts",
+        "skirt",
+        "kilt",
+        "skirts",
+        "kilts",
+        "dress",
+        "gown",
+        "robe",
+        "cloak",
+        "hood",
+        "jacket",
+        "tunic",
+        "vest",
+        "dresses",
+        "gowns",
+        "robes",
+        "cloaks",
+        "hoods",
+        "jackets",
+        "tunics",
+        "vests",
+        "armor",
+        "armour",
+        "armors",
+        "armours",
+        "pauldron",
+        "pauldrons",
+        "sabatons",
+        "sabaton",
+        "greaves",
+        "cuirass",
+        "breastplate",
+        "gauntlet",
+        "gauntlets",
+        "vambrace",
+        "vambraces",
+        "bracer",
+        "bracers",
+        "pauldron",
+        "pauldrons",
+        "helm",
+        "helmet",
+        "helms",
+        "helmets",
+        "shield",
+        "mail",
+        "chainmail",
+        "chain mail",
+        "scale mail",
+        "scalemail",
+        "leather armor",
+        "leather armour",
+        "plate armor",
+        "plate armour",
+        "hauberk",
+        "coif",
+        "boots",
+        "gloves",
+        "gauntlets",
+        "sabatons",
+        "cap",
+        "hat",
+        "belt",
+        "boot",
+        "glove",
+        "caps",
+        "hats",
+        "belts",
+        "trainer",
+        "trainers",
+        "plimsoll",
+        "plimsolls",
+        "glasses",
+        "goggles",
+        "sunglasses",
+        "eyeglasses",
+        "spectacles",
+        "jewelry",
+        "jewellery",
+        "jewelries",
+        "jewelleries",
+        "ring",
+        "rings",
+        "amulet",
+        "amulets",
+        "necklace",
+        "necklaces",
+        "earring",
+        "earrings",
+        "bracelet",
+        "bracelets",
+        "brooch",
+        "brooches",
+        "tiara",
+        "crown",
+        "circlet",
+        "tiaras",
+        "crowns",
+        "circlets",
+        "hairpin",
+        "hairpins",
+        "hair clip",
+        "hair clips",
+        "barrette",
+        "barrettes",
+        "ribbon",
+        "ribbons",
+        "headband",
+        "headbands",
+        "scrunchie",
+        "scrunchies",
+    ];
+    keywords.iter().any(|k| item.contains(k))
 }
 /* =========================
    Config

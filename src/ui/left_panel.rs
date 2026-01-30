@@ -61,6 +61,9 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState) {
 
             ui.label("Details");
             ui.text_edit_multiline(&mut member.details);
+
+            ui.label("Clothing");
+            editable_list_with_id(ui, &mut member.clothing, ("party_clothing", i));
         });
 
         ui.add_space(6.0);
@@ -113,6 +116,7 @@ fn draw_local_npcs(
                                     name: npc.name.clone(),
                                     role: npc.role.clone(),
                                     details: npc.notes.clone(),
+                                    clothing: Vec::new(),
                                 });
                             }
                             let _ = cmd_tx.send(EngineCommand::AddNpcToParty {
@@ -186,4 +190,39 @@ fn npc_id_from_name(name: &str) -> String {
         }
     }
     id.trim_end_matches('_').to_string()
+}
+
+fn editable_list_with_id<T: std::hash::Hash>(
+    ui: &mut egui::Ui,
+    items: &mut Vec<String>,
+    id_key: T,
+) {
+    let mut remove_index: Option<usize> = None;
+    for i in 0..items.len() {
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut items[i]);
+            if ui.small_button("❌").clicked() {
+                remove_index = Some(i);
+            }
+        });
+    }
+    if let Some(i) = remove_index {
+        items.remove(i);
+    }
+
+    ui.horizontal(|ui| {
+        let id = ui.make_persistent_id(id_key);
+        let mut new_item = ui
+            .data_mut(|d| d.get_persisted::<String>(id))
+            .unwrap_or_default();
+        ui.add(egui::TextEdit::singleline(&mut new_item).hint_text("Add clothing item"));
+        if ui.button("➕").clicked() {
+            let trimmed = new_item.trim();
+            if !trimmed.is_empty() {
+                items.push(trimmed.to_string());
+                new_item.clear();
+            }
+        }
+        ui.data_mut(|d| d.insert_persisted(id, new_item));
+    });
 }

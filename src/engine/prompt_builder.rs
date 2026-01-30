@@ -138,6 +138,14 @@ Event Types (JSON array of objects with a \"type\" field):\n\
             prompt.push('\n');
         }
 
+        if !context.player.clothing.is_empty() {
+            prompt.push_str("Clothing:\n");
+            for item in &context.player.clothing {
+                prompt.push_str(&format!("- {}\n", item));
+            }
+            prompt.push('\n');
+        }
+
         /* =========================
            PARTY
            ========================= */
@@ -153,6 +161,12 @@ Event Types (JSON array of objects with a \"type\" field):\n\
                     member.role,
                     member.details
                 ));
+                if !member.clothing.is_empty() {
+                    prompt.push_str("  Clothing:\n");
+                    for item in &member.clothing {
+                        prompt.push_str(&format!("  - {}\n", item));
+                    }
+                }
             }
         }
         prompt.push('\n');
