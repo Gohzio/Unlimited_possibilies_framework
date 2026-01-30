@@ -703,6 +703,15 @@ fn format_party(state: &InternalGameState) -> String {
     let mut s = String::new();
     for member in state.party.values() {
         s.push_str(&format!("- {} ({})\n", member.name, member.role));
+        if !member.details.trim().is_empty() {
+            s.push_str(&format!("  Details: {}\n", member.details.trim()));
+        }
+        if !member.clothing.is_empty() {
+            s.push_str("  Clothing:\n");
+            for item in &member.clothing {
+                s.push_str(&format!("  - {}\n", item));
+            }
+        }
     }
     s
 }

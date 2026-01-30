@@ -55,6 +55,8 @@ pub struct PartyMember {
     pub id: String,
     pub name: String,
     pub role: String,
+    #[serde(default)]
+    pub details: String,
     pub hp: i32,
     pub clothing: Vec<String>,
 }

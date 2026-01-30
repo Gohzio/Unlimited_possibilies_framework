@@ -50,10 +50,55 @@ pub fn apply_event(
                     id,
                     name,
                     role,
+                    details: String::new(),
                     hp: 100,
                     clothing: Vec::new(),
                 },
             );
+
+            EventApplyOutcome::Applied
+        }
+
+        NarrativeEvent::PartyUpdate {
+            id,
+            name,
+            role,
+            details,
+            clothing,
+        } => {
+            let Some(member) = state.party.get_mut(&id) else {
+                return EventApplyOutcome::Deferred {
+                    reason: format!("Party member '{}' not found", id),
+                };
+            };
+
+            if let Some(name) = name {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    member.name = trimmed.to_string();
+                }
+            }
+            if let Some(role) = role {
+                let trimmed = role.trim();
+                if !trimmed.is_empty() {
+                    member.role = trimmed.to_string();
+                }
+            }
+            if let Some(details) = details {
+                let trimmed = details.trim();
+                if !trimmed.is_empty() {
+                    if member.details.trim().is_empty() {
+                        member.details = trimmed.to_string();
+                    } else if !member.details.contains(trimmed) {
+                        member.details = format!("{}\n{}", member.details.trim_end(), trimmed);
+                    }
+                }
+            }
+            if let Some(clothing) = clothing {
+                if !clothing.is_empty() {
+                    member.clothing = clothing;
+                }
+            }
 
             EventApplyOutcome::Applied
         }
@@ -108,6 +153,7 @@ pub fn apply_event(
                     id,
                     name,
                     role,
+                    details: String::new(),
                     hp: 100,
                     clothing: Vec::new(),
                 },

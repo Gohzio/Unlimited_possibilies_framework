@@ -153,7 +153,13 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
 
-                for msg in &app.ui.rendered_messages {
+                let mut last_user_text: Option<String> = None;
+                let mut regen_request: Option<String> = None;
+                let messages_len = app.ui.rendered_messages.len();
+                for (idx, msg) in app.ui.rendered_messages.iter().enumerate() {
+                    if let Message::User(user_text) = msg {
+                        last_user_text = Some(user_text.clone());
+                    }
                     let (raw_text, color) = match msg {
                         Message::User(t) => (
                             format!("You: {}", t),
@@ -219,13 +225,49 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                         );
                     }
 
-                    ui.add(
+                    let response = ui.add(
                         egui::Label::new(job)
                             .wrap()
                             .selectable(true),
                     );
 
+                    let is_roleplay = matches!(msg, Message::Roleplay { .. });
+                    let is_end_of_response = if is_roleplay {
+                        if idx + 1 >= messages_len {
+                            true
+                        } else {
+                            !matches!(app.ui.rendered_messages[idx + 1], Message::Roleplay { .. })
+                        }
+                    } else {
+                        false
+                    };
+
+                    if is_end_of_response {
+                        if let Some(user_text) = last_user_text.as_ref() {
+                            if response.rect.width() > 0.0 {
+                                let button = egui::Button::new("↻")
+                                    .min_size(egui::vec2(16.0, 16.0));
+                                if ui
+                                    .add(button)
+                                    .on_hover_text("Regenerate response")
+                                    .clicked()
+                                {
+                                    regen_request = Some(user_text.clone());
+                                }
+                            }
+                        }
+                    }
+
                     ui.add_space(8.0);
+                }
+
+                if let Some(text) = regen_request.take() {
+                    let context = app.build_game_context();
+                    app.send_command(EngineCommand::SubmitPlayerInput {
+                        text,
+                        context,
+                        llm: app.ui.llm_config(),
+                    });
                 }
 
                 if app.ui.should_auto_scroll {

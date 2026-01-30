@@ -62,6 +62,13 @@ pub enum NarrativeEvent {
         name: String,
         role: String,
     },
+    PartyUpdate {
+        id: String,
+        name: Option<String>,
+        role: Option<String>,
+        details: Option<String>,
+        clothing: Option<Vec<String>>,
+    },
     NpcSpawn {
         id: String,
         name: String,

@@ -51,6 +51,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - npc_despawn { id, reason? }\n\
 - npc_join_party { id, name?, role?, details? }\n\
 - npc_leave_party { id }\n\
+- party_update { id, name?, role?, details?, clothing? }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - add_item { item_id, quantity }\n\
 - drop { item, quantity?, description? }\n\
@@ -70,6 +71,16 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - When you learn new NPC facts (real name, title, favorite drink, habits), emit npc_update with details.\n\
 - When an NPC leaves the scene or the player walks away, emit npc_despawn { id }.\n\
 - Keep npc id stable (lowercase snake_case, e.g., guard_captain, smithy).\n\n"
+        );
+        prompt.push_str(
+            "Party Tracking:\n\
+- When you learn new details about a party member (appearance, clothing, habits), emit party_update.\n\
+- clothing should be an array of short strings; details should be a concise summary.\n\n"
+        );
+        prompt.push_str(
+            "Party Tracking:\n\
+- When you learn new details about a party member (appearance, clothing, habits), emit party_update.\n\
+- clothing should be an array of short strings; details should be a concise summary.\n\n"
         );
         prompt.push_str(
             "Request Context:\n\
@@ -418,6 +429,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - npc_despawn { id, reason? }\n\
 - npc_join_party { id, name?, role?, details? }\n\
 - npc_leave_party { id }\n\
+- party_update { id, name?, role?, details?, clothing? }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - add_item { item_id, quantity }\n\
 - drop { item, quantity?, description? }\n\

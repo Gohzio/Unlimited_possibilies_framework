@@ -499,7 +499,7 @@ impl UiState {
                 Some(&member.id),
                 Some(&member.name),
                 Some(&member.role),
-                None,
+                Some(&member.details),
                 Some(&member.clothing),
             );
         }
@@ -547,6 +547,9 @@ impl UiState {
                 continue;
             };
             if !matches!(speaker, crate::model::message::RoleplaySpeaker::PartyMember) {
+                if matches!(speaker, crate::model::message::RoleplaySpeaker::Narrator) {
+                    self.auto_detect_party_details(&text);
+                }
                 continue;
             }
             let Some((name, body)) = text.split_once(':') else {
@@ -559,6 +562,33 @@ impl UiState {
             }
             let details = if body.is_empty() { None } else { Some(body) };
             self.upsert_party_member(None, Some(name), None, details, None);
+        }
+    }
+
+    fn auto_detect_party_details(&mut self, text: &str) {
+        if self.party.is_empty() {
+            return;
+        }
+        let lower = text.to_ascii_lowercase();
+        for member in self.party.clone() {
+            let name = member.name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let name_lower = name.to_ascii_lowercase();
+            if !contains_word(&lower, &name_lower) {
+                continue;
+            }
+
+            let details = text.trim();
+            let clothing = extract_clothing_from_text(text);
+            self.upsert_party_member(
+                member.id.as_deref(),
+                Some(name),
+                None,
+                Some(details),
+                if clothing.is_empty() { None } else { Some(&clothing) },
+            );
         }
     }
 
@@ -971,6 +1001,48 @@ fn inventory_label(id: &str, quantity: u32) -> String {
     } else {
         format!("{} x{}", id, quantity)
     }
+}
+
+fn contains_word(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    haystack
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|w| w.eq_ignore_ascii_case(needle))
+}
+
+fn extract_clothing_from_text(text: &str) -> Vec<String> {
+    let lower = text.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let markers = ["wearing ", "clad in ", "dressed in "];
+    for marker in markers {
+        if let Some(pos) = lower.find(marker) {
+            let start = pos + marker.len();
+            let tail = &text[start..];
+            let sentence = tail
+                .split_terminator(|c| c == '.' || c == '!' || c == '?')
+                .next()
+                .unwrap_or(tail);
+            for part in sentence.split(|c| c == ',' || c == ';') {
+                let trimmed = part.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let cleaned = trimmed
+                    .trim_start_matches("a ")
+                    .trim_start_matches("an ")
+                    .trim_start_matches("the ")
+                    .trim();
+                if cleaned.is_empty() {
+                    continue;
+                }
+                out.push(cleaned.to_string());
+            }
+            break;
+        }
+    }
+    out
 }
 
 fn remove_inventory_entry(list: &mut Vec<String>, id: &str) {
