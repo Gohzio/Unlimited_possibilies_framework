@@ -33,7 +33,7 @@ You MUST respond in exactly two sections:\n\n\
 NARRATIVE:\n\
 <text>\n\n\
 EVENTS:\n\
-<json>\n\n\
+-<json>\n\n\
 Do not add explanations, markdown, or extra sections.\n\n\
 Event Types (JSON array of objects with a \"type\" field):\n\
 - combat { description }\n\
@@ -217,7 +217,11 @@ Event Types (JSON array of objects with a \"type\" field):\n\
             "REMINDER:\n\
 - Use speaker tags like [NARRATOR], [PARTY: Name], [NPC: Name]\n\
 - Do NOT describe player actions beyond the input.\n\
-- EVENTS must be valid JSON.\n\
+- EVENTS must be valid JSON (a JSON array only).\n\
+- Do NOT use bullet lists or \"type { key: value }\" shorthand.\n\
+- All keys and string values must use double quotes.\n\
+- Example:\n\
+  [ { \"type\": \"drop\", \"item\": \"Common Squirrel Fur\", \"quantity\": 1, \"description\": \"The soft fur of a common forest squirrel.\" } ]\n\
 - If no events occur, output: []\n"
         );
 
