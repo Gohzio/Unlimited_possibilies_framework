@@ -3,6 +3,7 @@ use eframe::egui::{FontId, TextFormat};
 use egui::text::LayoutJob;
 
 use crate::engine::protocol::EngineCommand;
+use rfd::FileDialog;
 use crate::model::message::{Message, RoleplaySpeaker};
 use super::app::MyApp;
 
@@ -120,6 +121,26 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                 {
                     reset_session = true;
                 }
+
+                if ui
+                    .small_button("💾")
+                    .on_hover_text("Save game state")
+                    .clicked()
+                {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("Game Save", &["json"])
+                        .set_file_name("save.json")
+                        .set_directory(crate::ui::app::UiState::default_save_dir())
+                        .save_file()
+                    {
+                        app.send_command(EngineCommand::SaveGame {
+                            path,
+                            world: app.ui.world.clone(),
+                            player: app.ui.character.clone(),
+                            party: app.ui.party.clone(),
+                        });
+                    }
+                }
             });
 
             ui.vertical(|ui| {
@@ -136,6 +157,20 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                     .clicked()
                 {
                     reset_all = true;
+                }
+
+                if ui
+                    .small_button("📂")
+                    .on_hover_text("Load game state")
+                    .clicked()
+                {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("Game Save", &["json"])
+                        .set_directory(crate::ui::app::UiState::default_save_dir())
+                        .pick_file()
+                    {
+                        app.send_command(EngineCommand::LoadGame { path });
+                    }
                 }
             });
 

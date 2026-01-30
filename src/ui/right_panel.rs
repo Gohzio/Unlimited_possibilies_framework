@@ -140,6 +140,18 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         });
     });
 
+    ui.collapsing("Weapons", |ui| {
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            editable_list(ui, "Weapons", &mut c.weapons, "Add weapon");
+        });
+    });
+
+    ui.collapsing("Armour", |ui| {
+        ui.add_enabled_ui(!state.player_locked, |ui| {
+            editable_list(ui, "Armour", &mut c.armor, "Add armour");
+        });
+    });
+
     ui.collapsing("Features & Boons", |ui| {
         ui.add_enabled_ui(!state.player_locked, |ui| {
             editable_list(ui, "Features & Boons", &mut c.features, "Add feature");
@@ -158,6 +170,10 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         });
     });
 
+    ui.collapsing("Currencies", |ui| {
+        draw_currencies(ui, state);
+    });
+
     ui.add_space(6.0);
     if !state.player_locked {
         if ui
@@ -173,6 +189,36 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         .clicked()
     {
         state.player_locked = false;
+    }
+}
+
+fn draw_currencies(ui: &mut egui::Ui, state: &UiState) {
+    let Some(snapshot) = &state.snapshot else {
+        ui.label("No currencies yet.");
+        return;
+    };
+
+    if snapshot.currencies.is_empty() {
+        ui.label("No currencies yet.");
+        return;
+    }
+
+    let mut currencies = snapshot.currencies.clone();
+    currencies.sort_by(|a, b| a.currency.cmp(&b.currency));
+
+    if let Some(gold) = currencies
+        .iter()
+        .find(|c| c.currency.eq_ignore_ascii_case("gold"))
+    {
+        ui.label(format!("Gold: {}", gold.amount));
+        ui.add_space(6.0);
+    }
+
+    for currency in currencies {
+        if currency.currency.eq_ignore_ascii_case("gold") {
+            continue;
+        }
+        ui.label(format!("{}: {}", currency.currency, currency.amount));
     }
 }
 
@@ -268,6 +314,47 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
             ui.separator();
             ui.label("Must ALWAYS");
             editable_list(ui, "Must Always", &mut w.must_always, "Add rule");
+        });
+    });
+
+    ui.collapsing("Loot Rules", |ui| {
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.label("Mode");
+            egui::ComboBox::from_id_salt("loot_rules_mode")
+                .selected_text(w.loot_rules_mode.as_str())
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut w.loot_rules_mode,
+                        "Difficulty based".to_string(),
+                        "Difficulty based",
+                    );
+                    ui.selectable_value(
+                        &mut w.loot_rules_mode,
+                        "Rarity based".to_string(),
+                        "Rarity based",
+                    );
+                    ui.selectable_value(
+                        &mut w.loot_rules_mode,
+                        "Custom".to_string(),
+                        "Custom",
+                    );
+                });
+
+            ui.add_space(6.0);
+            match w.loot_rules_mode.as_str() {
+                "Difficulty based" => {
+                    ui.label("Harder tasks yield better rewards.");
+                }
+                "Rarity based" => {
+                    ui.label("Each drop can roll from any rarity tier:");
+                    ui.label("Common, Uncommon, Rare, Legendary, Exotic, Godly");
+                }
+                _ => {}
+            }
+
+            ui.add_space(6.0);
+            ui.label("Custom rules");
+            ui.text_edit_multiline(&mut w.loot_rules_custom);
         });
     });
 

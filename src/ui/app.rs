@@ -38,6 +38,10 @@ pub struct WorldDefinition {
     pub opening_message: String,
     pub must_not: Vec<String>,
     pub must_always: Vec<String>,
+    #[serde(default)]
+    pub loot_rules_mode: String,
+    #[serde(default)]
+    pub loot_rules_custom: String,
 }
 
 impl Default for WorldDefinition {
@@ -60,6 +64,8 @@ impl Default for WorldDefinition {
                 "Respect established lore".into(),
                 "Use structured events for state changes".into(),
             ],
+            loot_rules_mode: "Difficulty based".into(),
+            loot_rules_custom: String::new(),
         }
     }
 }
@@ -76,6 +82,10 @@ pub struct CharacterDefinition {
     pub stats: HashMap<String, i32>,
     pub powers: Vec<String>,
     pub features: Vec<String>,
+    #[serde(default)]
+    pub weapons: Vec<String>,
+    #[serde(default)]
+    pub armor: Vec<String>,
     pub inventory: Vec<String>,
     #[serde(default)]
     pub clothing: Vec<String>,
@@ -95,6 +105,8 @@ impl Default for CharacterDefinition {
             stats,
             powers: vec!["Basic combat training".into()],
             features: vec![],
+            weapons: vec![],
+            armor: vec![],
             inventory: vec![],
             clothing: vec!["Simple clothing".into()],
         }
@@ -146,6 +158,14 @@ impl Default for SpeakerColors {
 pub enum LeftTab {
     Party,
     Npcs,
+    Quests,
+    Slaves,
+    Property,
+    BondedServants,
+    Concubines,
+    HaremMembers,
+    Prisoners,
+    NpcsOnMission,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,6 +184,7 @@ pub struct UiState {
     pub snapshot: Option<GameStateSnapshot>,
 
     pub ui_scale: f32,
+    pub text_scale: f32,
     pub should_auto_scroll: bool,
 
     pub world: WorldDefinition,
@@ -188,6 +209,9 @@ pub struct UiState {
     pub character_image: Option<egui::TextureHandle>,
     pub character_image_rgba: Option<Vec<u8>>,
     pub character_image_size: Option<(u32, u32)>,
+
+    pub optional_tabs: OptionalTabs,
+    pub base_text_sizes: Option<HashMap<egui::TextStyle, f32>>,
 }
 
 impl Default for UiState {
@@ -198,6 +222,7 @@ impl Default for UiState {
             snapshot: None,
 
             ui_scale: 1.0,
+            text_scale: 1.0,
             should_auto_scroll: true,
 
             world: WorldDefinition::default(),
@@ -222,11 +247,63 @@ impl Default for UiState {
             character_image: None,
             character_image_rgba: None,
             character_image_size: None,
+
+            optional_tabs: OptionalTabs::default(),
+            base_text_sizes: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct OptionalTabState {
+    pub enabled: bool,
+    pub unlocked: bool,
+}
+
+impl Default for OptionalTabState {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            unlocked: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct OptionalTabs {
+    pub slaves: OptionalTabState,
+    pub property: OptionalTabState,
+    pub bonded_servants: OptionalTabState,
+    pub concubines: OptionalTabState,
+    pub harem_members: OptionalTabState,
+    pub prisoners: OptionalTabState,
+    pub npcs_on_mission: OptionalTabState,
+    pub bonded_servants_label: String,
+}
+
+impl Default for OptionalTabs {
+    fn default() -> Self {
+        Self {
+            slaves: OptionalTabState::default(),
+            property: OptionalTabState::default(),
+            bonded_servants: OptionalTabState::default(),
+            concubines: OptionalTabState::default(),
+            harem_members: OptionalTabState::default(),
+            prisoners: OptionalTabState::default(),
+            npcs_on_mission: OptionalTabState::default(),
+            bonded_servants_label: "Bonded".to_string(),
         }
     }
 }
 
 impl UiState {
+    pub fn default_save_dir() -> PathBuf {
+        let mut path = dirs::document_dir().unwrap_or_else(|| PathBuf::from("."));
+        path.push("UPF Saves");
+        fs::create_dir_all(&path).ok();
+        path
+    }
+
     pub fn load_character_image_from_dialog(&mut self, ctx: &egui::Context) {
         let path = FileDialog::new()
             .add_filter("Image", &["png", "jpg", "jpeg"])
@@ -243,6 +320,7 @@ impl UiState {
         let Some(path) = FileDialog::new()
             .add_filter("Character Image", &["png"])
             .set_file_name("character.png")
+            .set_directory(Self::default_save_dir())
             .save_file()
         else {
             return;
@@ -272,6 +350,7 @@ impl UiState {
         let path = FileDialog::new()
             .add_filter("Character Image", &["png"])
             .add_filter("Character Json", &["json"])
+            .set_directory(Self::default_save_dir())
             .pick_file()?;
 
         let mut character = match path.extension().and_then(|s| s.to_str()) {
@@ -296,6 +375,7 @@ impl UiState {
         let Some(path) = FileDialog::new()
             .add_filter("World", &["json"])
             .set_file_name("world.json")
+            .set_directory(Self::default_save_dir())
             .save_file()
         else {
             return;
@@ -308,6 +388,7 @@ impl UiState {
     pub fn load_world_from_dialog() -> Option<WorldDefinition> {
         let path = FileDialog::new()
             .add_filter("World", &["json"])
+            .set_directory(Self::default_save_dir())
             .pick_file()?;
         let data = fs::read_to_string(path).ok()?;
         serde_json::from_str::<WorldDefinition>(&data).ok()
@@ -372,6 +453,41 @@ impl UiState {
                 None,
                 Some(&member.clothing),
             );
+        }
+    }
+
+    pub fn sync_player_from_snapshot(
+        &mut self,
+        snapshot: &crate::model::game_state::GameStateSnapshot,
+    ) {
+        if let Some(tab) = self.update_optional_tabs_from_snapshot(snapshot) {
+            if self.is_left_tab_visible(tab) {
+                self.left_tab = tab;
+            }
+        }
+
+        for item in &snapshot.player.weapons {
+            if !contains_case_insensitive(&self.character.weapons, item) {
+                self.character.weapons.push(item.clone());
+            }
+        }
+
+        for item in &snapshot.player.armor {
+            if !contains_case_insensitive(&self.character.armor, item) {
+                self.character.armor.push(item.clone());
+            }
+        }
+
+        for item in &snapshot.player.clothing {
+            if !contains_case_insensitive(&self.character.clothing, item) {
+                self.character.clothing.push(item.clone());
+            }
+        }
+
+        for stack in &snapshot.inventory {
+            let label = inventory_label(&stack.id, stack.quantity);
+            remove_inventory_entry(&mut self.character.inventory, &stack.id);
+            self.character.inventory.push(label);
         }
     }
 
@@ -470,6 +586,135 @@ impl UiState {
             });
         }
     }
+
+    pub fn is_left_tab_visible(&self, tab: LeftTab) -> bool {
+        match tab {
+            LeftTab::Party | LeftTab::Npcs | LeftTab::Quests => true,
+            LeftTab::Slaves => self.optional_tabs.slaves.unlocked && self.optional_tabs.slaves.enabled,
+            LeftTab::Property => self.optional_tabs.property.unlocked && self.optional_tabs.property.enabled,
+            LeftTab::BondedServants => {
+                self.optional_tabs.bonded_servants.unlocked
+                    && self.optional_tabs.bonded_servants.enabled
+            }
+            LeftTab::Concubines => {
+                self.optional_tabs.concubines.unlocked && self.optional_tabs.concubines.enabled
+            }
+            LeftTab::HaremMembers => {
+                self.optional_tabs.harem_members.unlocked && self.optional_tabs.harem_members.enabled
+            }
+            LeftTab::Prisoners => {
+                self.optional_tabs.prisoners.unlocked && self.optional_tabs.prisoners.enabled
+            }
+            LeftTab::NpcsOnMission => {
+                self.optional_tabs.npcs_on_mission.unlocked
+                    && self.optional_tabs.npcs_on_mission.enabled
+            }
+        }
+    }
+
+    pub fn ensure_left_tab_visible(&mut self) {
+        if !self.is_left_tab_visible(self.left_tab) {
+            self.left_tab = LeftTab::Party;
+        }
+    }
+
+    fn update_optional_tabs_from_snapshot(
+        &mut self,
+        snapshot: &crate::model::game_state::GameStateSnapshot,
+    ) -> Option<LeftTab> {
+        let mut opened: Option<LeftTab> = None;
+        for flag in &snapshot.flags {
+            let flag = flag.trim().to_lowercase();
+            if flag.is_empty() {
+                continue;
+            }
+
+            if matches_flag(&flag, &["unlock:slaves", "slaves", "slave", "owned_slaves", "owns_slaves"])
+                && unlock_if_needed(&mut self.optional_tabs.slaves, LeftTab::Slaves, &mut opened)
+            {
+                continue;
+            }
+
+            if matches_flag(&flag, &["unlock:property", "property", "owned_property", "owns_property"])
+                && unlock_if_needed(&mut self.optional_tabs.property, LeftTab::Property, &mut opened)
+            {
+                continue;
+            }
+
+            if matches_flag(
+                &flag,
+                &[
+                    "unlock:bonded_servants",
+                    "bonded_servants",
+                    "bonded-servants",
+                    "bonded servants",
+                    "bondservants",
+                    "hirð",
+                ],
+            ) && unlock_if_needed(
+                &mut self.optional_tabs.bonded_servants,
+                LeftTab::BondedServants,
+                &mut opened,
+            ) {
+                continue;
+            }
+
+            if matches_flag(&flag, &["unlock:concubines", "concubines", "concubine"])
+                && unlock_if_needed(&mut self.optional_tabs.concubines, LeftTab::Concubines, &mut opened)
+            {
+                continue;
+            }
+
+            if matches_flag(&flag, &["unlock:harem_members", "harem_members", "harem", "harem members"])
+                && unlock_if_needed(&mut self.optional_tabs.harem_members, LeftTab::HaremMembers, &mut opened)
+            {
+                continue;
+            }
+
+            if matches_flag(&flag, &["unlock:prisoners", "prisoners", "prisoner", "captives"])
+                && unlock_if_needed(&mut self.optional_tabs.prisoners, LeftTab::Prisoners, &mut opened)
+            {
+                continue;
+            }
+
+            if matches_flag(
+                &flag,
+                &[
+                    "unlock:npcs_on_mission",
+                    "npcs_on_mission",
+                    "npc_missions",
+                    "npc missions",
+                    "missions",
+                ],
+            ) && unlock_if_needed(
+                &mut self.optional_tabs.npcs_on_mission,
+                LeftTab::NpcsOnMission,
+                &mut opened,
+            ) {
+                continue;
+            }
+        }
+        opened
+    }
+}
+
+fn matches_flag(flag: &str, aliases: &[&str]) -> bool {
+    aliases.iter().any(|alias| flag == *alias)
+}
+
+fn unlock_if_needed(
+    tab: &mut OptionalTabState,
+    left_tab: LeftTab,
+    opened: &mut Option<LeftTab>,
+) -> bool {
+    if !tab.unlocked {
+        tab.unlocked = true;
+        if tab.enabled && opened.is_none() {
+            *opened = Some(left_tab);
+        }
+        return true;
+    }
+    false
 }
 
 fn migrate_character_clothing(character: &mut CharacterDefinition) {
@@ -666,6 +911,27 @@ fn looks_like_clothing(item: &str) -> bool {
     ];
     keywords.iter().any(|k| item.contains(k))
 }
+
+fn contains_case_insensitive(list: &[String], value: &str) -> bool {
+    list.iter().any(|v| v.eq_ignore_ascii_case(value))
+}
+
+fn inventory_label(id: &str, quantity: u32) -> String {
+    if quantity <= 1 {
+        id.to_string()
+    } else {
+        format!("{} x{}", id, quantity)
+    }
+}
+
+fn remove_inventory_entry(list: &mut Vec<String>, id: &str) {
+    let needle = id.to_lowercase();
+    let prefix = format!("{} x", needle);
+    list.retain(|item| {
+        let lower = item.to_lowercase();
+        !(lower == needle || lower.starts_with(&prefix))
+    });
+}
 /* =========================
    Config
    ========================= */
@@ -673,6 +939,8 @@ fn looks_like_clothing(item: &str) -> bool {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub ui_scale: f32,
+    #[serde(default)]
+    pub text_scale: f32,
     pub speaker_colors: SpeakerColors,
 }
 
@@ -680,6 +948,7 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             ui_scale: 1.0,
+            text_scale: 1.0,
             speaker_colors: SpeakerColors::default(),
         }
     }
@@ -752,7 +1021,9 @@ impl MyApp {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
+        sanitize_ui_scales(&mut self.ui);
         ctx.set_pixels_per_point(self.ui.ui_scale);
+        apply_text_scale(ctx, &mut self.ui);
 
         while let Ok(resp) = self.resp_rx.try_recv() {
             match resp {
@@ -760,16 +1031,29 @@ impl eframe::App for MyApp {
                     self.ui.rendered_messages = msgs;
                     self.ui.should_auto_scroll = true;
                     self.ui.sync_party_from_messages();
+                    self.ui.ensure_left_tab_visible();
                 }
                 EngineResponse::NarrativeApplied { report, snapshot } => {
                     self.ui.snapshot = Some(snapshot.clone());
                     self.ui.apply_party_updates_from_report(&report);
                     self.ui.sync_party_from_snapshot(&snapshot);
+                    self.ui.sync_player_from_snapshot(&snapshot);
                     self.ui.sync_party_from_messages();
+                    self.ui.ensure_left_tab_visible();
                     for a in report.applications {
                         let t = format!("{:?}", a.outcome);
                         self.ui.rendered_messages.push(Message::System(t));
                     }
+                }
+                EngineResponse::GameLoaded { save, snapshot } => {
+                    self.ui.world = save.world;
+                    self.ui.character = save.player;
+                    self.ui.party = save.party;
+                    self.ui.rendered_messages = save.messages;
+                    self.ui.snapshot = Some(snapshot.clone());
+                    self.ui.sync_party_from_snapshot(&snapshot);
+                    self.ui.sync_player_from_snapshot(&snapshot);
+                    self.ui.ensure_left_tab_visible();
                 }
                 EngineResponse::LlmConnectionResult { success, message } => {
                     self.ui.llm_connected = success;
@@ -799,7 +1083,14 @@ fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.label("UI Scale");
-            ui.add(egui::Slider::new(&mut ui_state.ui_scale, 0.75..=1.5));
+            let ui_scale_changed = ui
+                .add(egui::Slider::new(&mut ui_state.ui_scale, 0.75..=1.5))
+                .changed();
+
+            ui.label("Text Size");
+            let text_scale_changed = ui
+                .add(egui::Slider::new(&mut ui_state.text_scale, 0.75..=1.5))
+                .changed();
 
             ui.separator();
             ui.heading("Speaker Colors");
@@ -810,7 +1101,7 @@ fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
             color_picker(ui, "Party", &mut ui_state.speaker_colors.party);
             color_picker(ui, "System", &mut ui_state.speaker_colors.system);
 
-            if ui.button("Save").clicked() {
+            if ui_scale_changed || text_scale_changed || ui.button("Save").clicked() {
                 save_config(ui_state);
             }
         });
@@ -823,8 +1114,10 @@ fn draw_options_window(
     ui_state: &mut UiState,
     cmd_tx: &mpsc::Sender<EngineCommand>,
 ) {
+    let mut open = ui_state.show_options;
+
     egui::Window::new("🛠 Options")
-        .open(&mut ui_state.show_options)
+        .open(&mut open)
         .show(ctx, |ui| {
             if ui.button("🔌 Connect to LM Studio").clicked() {
                 let _ = cmd_tx.send(EngineCommand::ConnectToLlm);
@@ -840,8 +1133,66 @@ fn draw_options_window(
 
             ui.label(egui::RichText::new(&ui_state.llm_status).color(status_color));
             ui.separator();
-            ui.label("Advanced / Debug options will live here.");
+            ui.heading("Optional Tabs");
+            ui.label("Tabs unlock when the engine sets a flag like: unlock:slaves");
+
+            ui.checkbox(&mut ui_state.optional_tabs.slaves.enabled, "Slaves");
+            ui.checkbox(&mut ui_state.optional_tabs.property.enabled, "Property");
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    &mut ui_state.optional_tabs.bonded_servants.enabled,
+                    "Bonded servants",
+                );
+                ui.add_space(6.0);
+                ui.label("Tab name");
+                ui.add(
+                    egui::TextEdit::singleline(
+                        &mut ui_state.optional_tabs.bonded_servants_label,
+                    )
+                    .hint_text("Bonded"),
+                );
+            });
+            ui.checkbox(&mut ui_state.optional_tabs.concubines.enabled, "Concubines");
+            ui.checkbox(&mut ui_state.optional_tabs.harem_members.enabled, "Harem members");
+            ui.checkbox(&mut ui_state.optional_tabs.prisoners.enabled, "Prisoners");
+            ui.checkbox(&mut ui_state.optional_tabs.npcs_on_mission.enabled, "NPCs on mission");
+
+            ui.add_space(6.0);
+            let status = optional_tabs_status(ui_state);
+            ui.label(format!("Unlocked: {}", status));
         });
+
+    ui_state.show_options = open;
+}
+
+fn optional_tabs_status(ui_state: &UiState) -> String {
+    let mut unlocked = Vec::new();
+    if ui_state.optional_tabs.slaves.unlocked {
+        unlocked.push("Slaves");
+    }
+    if ui_state.optional_tabs.property.unlocked {
+        unlocked.push("Property");
+    }
+    if ui_state.optional_tabs.bonded_servants.unlocked {
+        unlocked.push("Bonded servants");
+    }
+    if ui_state.optional_tabs.concubines.unlocked {
+        unlocked.push("Concubines");
+    }
+    if ui_state.optional_tabs.harem_members.unlocked {
+        unlocked.push("Harem members");
+    }
+    if ui_state.optional_tabs.prisoners.unlocked {
+        unlocked.push("Prisoners");
+    }
+    if ui_state.optional_tabs.npcs_on_mission.unlocked {
+        unlocked.push("NPCs on mission");
+    }
+    if unlocked.is_empty() {
+        "none".to_string()
+    } else {
+        unlocked.join(", ")
+    }
 }
 
 /* =========================
@@ -869,6 +1220,7 @@ fn config_path() -> PathBuf {
 pub(crate) fn save_config(ui: &UiState) {
     let cfg = AppConfig {
         ui_scale: ui.ui_scale,
+        text_scale: ui.text_scale,
         speaker_colors: ui.speaker_colors.clone(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
@@ -880,9 +1232,55 @@ fn load_config(ui: &mut UiState) {
     if let Ok(data) = fs::read_to_string(config_path()) {
         if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
             ui.ui_scale = cfg.ui_scale;
+            ui.text_scale = cfg.text_scale;
             ui.speaker_colors = cfg.speaker_colors;
+            sanitize_ui_scales(ui);
         }
     }
+}
+
+const MIN_UI_SCALE: f32 = 0.75;
+const MAX_UI_SCALE: f32 = 1.5;
+const MIN_TEXT_SCALE: f32 = 0.75;
+const MAX_TEXT_SCALE: f32 = 1.5;
+
+fn sanitize_ui_scales(ui: &mut UiState) {
+    ui.ui_scale = sanitize_scale(ui.ui_scale, 1.0, MIN_UI_SCALE, MAX_UI_SCALE);
+    ui.text_scale = sanitize_scale(ui.text_scale, 1.0, MIN_TEXT_SCALE, MAX_TEXT_SCALE);
+}
+
+fn sanitize_scale(value: f32, default: f32, min: f32, max: f32) -> f32 {
+    if !value.is_finite() {
+        return default;
+    }
+    value.clamp(min, max)
+}
+
+fn apply_text_scale(ctx: &egui::Context, ui_state: &mut UiState) {
+    if ui_state.base_text_sizes.is_none() {
+        let mut base = HashMap::new();
+        for (style, font_id) in &ctx.style().text_styles {
+            base.insert(style.clone(), font_id.size);
+        }
+        ui_state.base_text_sizes = Some(base);
+    }
+
+    let Some(base) = ui_state.base_text_sizes.as_ref() else {
+        return;
+    };
+
+    let mut style = (*ctx.style()).clone();
+    for (text_style, base_size) in base {
+        if let Some(font_id) = style.text_styles.get_mut(text_style) {
+            font_id.size = base_size * ui_state.text_scale;
+        } else {
+            style.text_styles.insert(
+                text_style.clone(),
+                egui::FontId::proportional(base_size * ui_state.text_scale),
+            );
+        }
+    }
+    ctx.set_style(style);
 }
 
 const CHARACTER_PNG_KEY: &str = "UPF_CHARACTER_JSON";

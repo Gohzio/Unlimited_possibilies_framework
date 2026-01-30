@@ -42,7 +42,8 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - rest { description }\n\
 - grant_power { id, name, description }\n\
 - modify_stat { stat_id, delta }\n\
-- start_quest { id, title, description }\n\
+- start_quest { id, title, description, rewards?, sub_quests? }\n\
+- update_quest { id, title?, description?, status?, rewards?, sub_quests? }\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
 - npc_spawn { id, name, role, details? }\n\
@@ -52,7 +53,28 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - add_item { item_id, quantity }\n\
 - drop { item, quantity?, description? }\n\
 - spawn_loot { item, quantity?, description? }\n\
-- currency_change { currency, delta }\n\n"
+- currency_change { currency, delta }\n\
+- request_context { topics }\n\n"
+        );
+        prompt.push_str(
+            "Event Notes:\n\
+- sub_quests is an array of objects like { id, description, completed? }\n\
+- update_quest may send partial updates for sub_quests (id required)\n\n"
+        );
+        prompt.push_str(
+            "Request Context:\n\
+- If you need more data, emit request_context { topics: [\"topic1\", \"topic2\"] }\n\
+- Do NOT add narrative when requesting context\n\n"
+        );
+        prompt.push_str(
+            "Optional Tabs (unlock via set_flag):\n\
+- unlock:slaves\n\
+- unlock:property\n\
+- unlock:bonded_servants (aliases: bonded_servants, hirð)\n\
+- unlock:concubines\n\
+- unlock:harem_members\n\
+- unlock:prisoners\n\
+- unlock:npcs_on_mission\n\n"
         );
 
         /* =========================
@@ -111,6 +133,10 @@ Event Types (JSON array of objects with a \"type\" field):\n\
             prompt.push('\n');
         }
 
+        prompt.push_str("Loot Rules:\n");
+        prompt.push_str(&loot_rules_text(&context.world));
+        prompt.push('\n');
+
         /* =========================
            PLAYER
            ========================= */
@@ -134,6 +160,22 @@ Event Types (JSON array of objects with a \"type\" field):\n\
             prompt.push_str("Powers:\n");
             for p in &context.player.powers {
                 prompt.push_str(&format!("- {}\n", p));
+            }
+            prompt.push('\n');
+        }
+
+        if !context.player.weapons.is_empty() {
+            prompt.push_str("Weapons:\n");
+            for item in &context.player.weapons {
+                prompt.push_str(&format!("- {}\n", item));
+            }
+            prompt.push('\n');
+        }
+
+        if !context.player.armor.is_empty() {
+            prompt.push_str("Armour:\n");
+            for item in &context.player.armor {
+                prompt.push_str(&format!("- {}\n", item));
             }
             prompt.push('\n');
         }
@@ -170,6 +212,42 @@ Event Types (JSON array of objects with a \"type\" field):\n\
             }
         }
         prompt.push('\n');
+
+        /* =========================
+           QUESTS
+           ========================= */
+
+        if let Some(snapshot) = &context.snapshot {
+            prompt.push_str("QUESTS:\n");
+            if snapshot.quests.is_empty() {
+                prompt.push_str("None\n\n");
+            } else {
+                for quest in &snapshot.quests {
+                    prompt.push_str(&format!(
+                        "- [{}] {}\n",
+                        quest_status_label(&quest.status),
+                        quest.title
+                    ));
+                    if !quest.description.trim().is_empty() {
+                        prompt.push_str(&format!("  Description: {}\n", quest.description.trim()));
+                    }
+                    if !quest.rewards.is_empty() {
+                        prompt.push_str("  Rewards:\n");
+                        for reward in &quest.rewards {
+                            prompt.push_str(&format!("  - {}\n", reward));
+                        }
+                    }
+                    if !quest.sub_quests.is_empty() {
+                        prompt.push_str("  Sub-quests:\n");
+                        for step in &quest.sub_quests {
+                            let status = if step.completed { "done" } else { "open" };
+                            prompt.push_str(&format!("  - [{}] {}\n", status, step.description));
+                        }
+                    }
+                }
+                prompt.push('\n');
+            }
+        }
 
         /* =========================
            NARRATIVE HISTORY
@@ -243,6 +321,104 @@ Event Types (JSON array of objects with a \"type\" field):\n\
     }
 }
 
+impl PromptBuilder {
+    pub fn build_with_requested_context(
+        context: &GameContext,
+        player_input: &str,
+        requested_context: &str,
+        recent_history: &[Message],
+    ) -> String {
+        let mut prompt = String::new();
+
+        prompt.push_str(
+            "You are the narrator and all non-player characters in a roleplaying game.\n\n\
+Rules:\n\
+- You must never control or describe actions taken by the player beyond what the player explicitly states.\n\
+- All game state changes must be expressed ONLY through structured EVENTS.\n\
+- If no state change is required, output an empty events array.\n\n\
+Output Format:\n\
+You MUST respond in exactly two sections:\n\n\
+NARRATIVE:\n\
+<text>\n\n\
+EVENTS:\n\
+<json array>\n\n\
+Event Types (JSON array of objects with a \"type\" field):\n\
+- combat { description }\n\
+- dialogue { speaker, text }\n\
+- travel { from, to }\n\
+- rest { description }\n\
+- grant_power { id, name, description }\n\
+- modify_stat { stat_id, delta }\n\
+- start_quest { id, title, description, rewards?, sub_quests? }\n\
+- update_quest { id, title?, description?, status?, rewards?, sub_quests? }\n\
+- set_flag { flag }\n\
+- add_party_member { id, name, role }\n\
+- npc_spawn { id, name, role, details? }\n\
+- npc_join_party { id, name?, role?, details? }\n\
+- npc_leave_party { id }\n\
+- relationship_change { subject_id, target_id, delta }\n\
+- add_item { item_id, quantity }\n\
+- drop { item, quantity?, description? }\n\
+- spawn_loot { item, quantity?, description? }\n\
+- currency_change { currency, delta }\n\
+- request_context { topics }\n\n"
+        );
+
+        prompt.push_str("WORLD TITLE:\n");
+        prompt.push_str(&format!("{}\n\n", context.world.title));
+
+        if !requested_context.trim().is_empty() {
+            prompt.push_str("REQUESTED CONTEXT:\n");
+            prompt.push_str(requested_context);
+            prompt.push_str("\n\n");
+        }
+
+        if !recent_history.is_empty() {
+            prompt.push_str("RECENT HISTORY:\n");
+            for msg in recent_history {
+                if let Message::Roleplay { speaker, text } = msg {
+                    match speaker {
+                        RoleplaySpeaker::Narrator => {
+                            prompt.push_str(&format!("[NARRATOR] {}\n", text));
+                        }
+                        RoleplaySpeaker::Npc => {
+                            if let Some((name, body)) = split_speaker_text(text) {
+                                prompt.push_str(&format!("[NPC: {}] {}\n", name, body));
+                            } else {
+                                prompt.push_str(&format!("[NPC] {}\n", text));
+                            }
+                        }
+                        RoleplaySpeaker::PartyMember => {
+                            if let Some((name, body)) = split_speaker_text(text) {
+                                prompt.push_str(&format!("[PARTY: {}] {}\n", name, body));
+                            } else {
+                                prompt.push_str(&format!("[PARTY] {}\n", text));
+                            }
+                        }
+                    }
+                }
+            }
+            prompt.push('\n');
+        }
+
+        prompt.push_str("PLAYER ACTION:\n");
+        prompt.push_str(player_input);
+        prompt.push_str("\n\n");
+
+        prompt.push_str(
+            "REMINDER:\n\
+- Use speaker tags like [NARRATOR], [PARTY: Name], [NPC: Name]\n\
+- Do NOT describe player actions beyond the input.\n\
+- EVENTS must be valid JSON (a JSON array only).\n\
+- All keys and string values must use double quotes.\n\
+- If you still need more context, emit request_context with topics.\n\
+"
+        );
+
+        prompt
+    }
+}
+
 fn split_speaker_text(text: &str) -> Option<(&str, &str)> {
     let (name, body) = text.split_once(':')?;
     let name = name.trim();
@@ -251,4 +427,27 @@ fn split_speaker_text(text: &str) -> Option<(&str, &str)> {
         return None;
     }
     Some((name, body))
+}
+
+fn loot_rules_text(world: &crate::ui::app::WorldDefinition) -> String {
+    let mode = world.loot_rules_mode.trim();
+    let mut base = if mode.eq_ignore_ascii_case("difficulty based") {
+        "Difficulty based: Harder tasks yield better rewards.".to_string()
+    } else if mode.eq_ignore_ascii_case("rarity based") {
+        "Rarity based: Each drop can roll from any tier (Common, Uncommon, Rare, Legendary, Exotic, Godly).".to_string()
+    } else if !world.loot_rules_custom.trim().is_empty() {
+        format!("Custom: {}", world.loot_rules_custom.trim())
+    } else {
+        "Custom: (not specified)".to_string()
+    };
+    base.push_str(" Applies to activity rewards (Mining, Fishing, Woodcutting, Farming, Crafting).");
+    base
+}
+
+fn quest_status_label(status: &crate::model::game_state::QuestStatus) -> &'static str {
+    match status {
+        crate::model::game_state::QuestStatus::Active => "active",
+        crate::model::game_state::QuestStatus::Completed => "completed",
+        crate::model::game_state::QuestStatus::Failed => "failed",
+    }
 }

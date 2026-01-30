@@ -34,6 +34,11 @@ pub struct PlayerState {
     pub level: u32,
     pub hp: i32,
     pub max_hp: i32,
+    #[serde(default)]
+    pub weapons: Vec<String>,
+    #[serde(default)]
+    pub armor: Vec<String>,
+    #[serde(default)]
     pub clothing: Vec<String>,
 }
    
@@ -58,7 +63,23 @@ pub struct PartyMember {
 pub struct Quest {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub description: String,
     pub status: QuestStatus,
+    #[serde(default)]
+    pub rewards: Vec<String>,
+    #[serde(default)]
+    pub sub_quests: Vec<QuestStep>,
+    #[serde(default)]
+    pub rewards_claimed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestStep {
+    pub id: String,
+    pub description: String,
+    #[serde(default)]
+    pub completed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,7 +117,7 @@ pub struct Relationship {
     pub value: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum QuestStatus {
     Active,

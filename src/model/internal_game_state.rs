@@ -14,7 +14,7 @@ use crate::model::game_state::{
     Relationship,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InternalGameState {
     pub version: u32,
 
@@ -82,6 +82,8 @@ impl Default for InternalGameState {
                 level: 1,
                 hp: 100,
                 max_hp: 100,
+                weapons: Vec::new(),
+                armor: Vec::new(),
                 clothing: Vec::new(),
             },
 

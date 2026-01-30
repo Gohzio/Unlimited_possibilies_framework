@@ -5,3 +5,4 @@ pub mod narrative_event;
 pub mod event_result;
 pub mod llm_decode;
 pub mod game_context;
+pub mod game_save;
