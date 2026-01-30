@@ -74,13 +74,13 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         );
         prompt.push_str(
             "Party Tracking:\n\
-- When you learn new details about a party member (appearance, clothing, habits), emit party_update.\n\
-- clothing should be an array of short strings; details should be a concise summary.\n\n"
+- Only emit party_update when the player explicitly asks to examine/describe a party member.\n\
+- clothing should be an array of short strings; details should be a concise summary (1-3 sentences).\n\n"
         );
         prompt.push_str(
             "Party Tracking:\n\
-- When you learn new details about a party member (appearance, clothing, habits), emit party_update.\n\
-- clothing should be an array of short strings; details should be a concise summary.\n\n"
+- Only emit party_update when the player explicitly asks to examine/describe a party member.\n\
+- clothing should be an array of short strings; details should be a concise summary (1-3 sentences).\n\n"
         );
         prompt.push_str(
             "Request Context:\n\

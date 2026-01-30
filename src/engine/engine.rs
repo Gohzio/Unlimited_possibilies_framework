@@ -243,6 +243,24 @@ pub fn run(&mut self) {
                                 continue;
                             }
                         }
+                        if let NarrativeEvent::PartyUpdate { .. } = event {
+                            if !player_requested_party_details(&text) {
+                                applications.push(EventApplication {
+                                    event,
+                                    outcome: EventApplyOutcome::Deferred {
+                                        reason: "Party update ignored: player did not request details.".to_string(),
+                                    },
+                                });
+                                continue;
+                            }
+                            let sanitized = sanitize_party_update(&event);
+                            let outcome = apply_event(&mut self.game_state, sanitized.clone());
+                            applications.push(EventApplication {
+                                event: sanitized,
+                                outcome,
+                            });
+                            continue;
+                        }
                         let outcome = apply_event(&mut self.game_state, event.clone());
                         applications.push(EventApplication { event, outcome });
                     }
@@ -281,6 +299,24 @@ pub fn run(&mut self) {
                             });
                             continue;
                         }
+                    }
+                    if let NarrativeEvent::PartyUpdate { .. } = event {
+                        if !player_requested_party_details(&text) {
+                            applications.push(EventApplication {
+                                event,
+                                outcome: EventApplyOutcome::Deferred {
+                                    reason: "Party update ignored: player did not request details.".to_string(),
+                                },
+                            });
+                            continue;
+                        }
+                        let sanitized = sanitize_party_update(&event);
+                        let outcome = apply_event(&mut self.game_state, sanitized.clone());
+                        applications.push(EventApplication {
+                            event: sanitized,
+                            outcome,
+                        });
+                        continue;
                     }
                     let outcome = apply_event(&mut self.game_state, event.clone());
                     applications.push(EventApplication {
@@ -941,5 +977,60 @@ fn validate_start_quest(
                 Some("Quest pending: player has not accepted the quest.".to_string())
             }
         }
+    }
+}
+
+fn player_requested_party_details(input: &str) -> bool {
+    let t = input.to_ascii_lowercase();
+    let phrases = [
+        "describe",
+        "details",
+        "look over",
+        "inspect",
+        "examine",
+        "what is",
+        "tell me about",
+        "appearance",
+        "clothing",
+        "outfit",
+        "wearing",
+    ];
+    phrases.iter().any(|p| t.contains(p))
+}
+
+fn sanitize_party_update(event: &NarrativeEvent) -> NarrativeEvent {
+    let NarrativeEvent::PartyUpdate {
+        id,
+        name,
+        role,
+        details,
+        clothing,
+    } = event
+    else {
+        return event.clone();
+    };
+
+    let mut details = details.as_ref().map(|d| d.trim().to_string());
+    if let Some(d) = details.as_mut() {
+        if d.len() > 320 {
+            d.truncate(317);
+            d.push_str("...");
+        }
+    }
+
+    let mut clothing = clothing.clone();
+    if let Some(items) = clothing.as_mut() {
+        items.retain(|c| !c.trim().is_empty());
+        if items.len() > 8 {
+            items.truncate(8);
+        }
+    }
+
+    NarrativeEvent::PartyUpdate {
+        id: id.clone(),
+        name: name.clone(),
+        role: role.clone(),
+        details,
+        clothing,
     }
 }
