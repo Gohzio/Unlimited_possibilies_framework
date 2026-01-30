@@ -43,6 +43,12 @@ pub struct WorldDefinition {
     pub loot_rules_mode: String,
     #[serde(default)]
     pub loot_rules_custom: String,
+    #[serde(default)]
+    pub world_quests_enabled: bool,
+    #[serde(default)]
+    pub world_quests_mandatory: bool,
+    #[serde(default)]
+    pub npc_quests_enabled: bool,
 }
 
 impl Default for WorldDefinition {
@@ -67,6 +73,9 @@ impl Default for WorldDefinition {
             ],
             loot_rules_mode: "Difficulty based".into(),
             loot_rules_custom: String::new(),
+            world_quests_enabled: false,
+            world_quests_mandatory: false,
+            npc_quests_enabled: false,
         }
     }
 }
@@ -186,7 +195,9 @@ pub struct UiState {
 
     pub ui_scale: f32,
     pub text_scale: f32,
+    pub chat_text_scale: f32,
     pub should_auto_scroll: bool,
+    pub chat_user_scrolled_up: bool,
 
     pub world: WorldDefinition,
     pub character: CharacterDefinition,
@@ -228,7 +239,9 @@ impl Default for UiState {
 
             ui_scale: 1.0,
             text_scale: 1.0,
+            chat_text_scale: 1.0,
             should_auto_scroll: true,
+            chat_user_scrolled_up: false,
 
             world: WorldDefinition::default(),
             character: CharacterDefinition::default(),
@@ -977,6 +990,8 @@ pub struct AppConfig {
     pub ui_scale: f32,
     #[serde(default)]
     pub text_scale: f32,
+    #[serde(default)]
+    pub chat_text_scale: f32,
     pub speaker_colors: SpeakerColors,
     #[serde(default)]
     pub llm_base_url: String,
@@ -991,6 +1006,7 @@ impl Default for AppConfig {
         Self {
             ui_scale: 1.0,
             text_scale: 1.0,
+            chat_text_scale: 1.0,
             speaker_colors: SpeakerColors::default(),
             llm_base_url: "http://localhost:1234/v1".into(),
             llm_model: "local-model".into(),
@@ -1095,6 +1111,7 @@ impl eframe::App for MyApp {
                     self.ui.character = save.player;
                     self.ui.party = save.party;
                     self.ui.rendered_messages = save.messages;
+                    self.ui.speaker_colors = save.speaker_colors;
                     self.ui.snapshot = Some(snapshot.clone());
                     self.ui.sync_party_from_snapshot(&snapshot);
                     self.ui.sync_player_from_snapshot(&snapshot);
@@ -1137,6 +1154,11 @@ fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
                 .add(egui::Slider::new(&mut ui_state.text_scale, 0.75..=1.5))
                 .changed();
 
+            ui.label("Chat Text Size");
+            let chat_text_scale_changed = ui
+                .add(egui::Slider::new(&mut ui_state.chat_text_scale, 0.75..=2.0))
+                .changed();
+
             ui.separator();
             ui.heading("Speaker Colors");
 
@@ -1146,7 +1168,11 @@ fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
             color_picker(ui, "Party", &mut ui_state.speaker_colors.party);
             color_picker(ui, "System", &mut ui_state.speaker_colors.system);
 
-            if ui_scale_changed || text_scale_changed || ui.button("Save").clicked() {
+            if ui_scale_changed
+                || text_scale_changed
+                || chat_text_scale_changed
+                || ui.button("Save").clicked()
+            {
                 save_config(ui_state);
             }
         });
@@ -1297,6 +1323,7 @@ pub(crate) fn save_config(ui: &UiState) {
     let cfg = AppConfig {
         ui_scale: ui.ui_scale,
         text_scale: ui.text_scale,
+        chat_text_scale: ui.chat_text_scale,
         speaker_colors: ui.speaker_colors.clone(),
         llm_base_url: ui.llm_base_url.clone(),
         llm_model: ui.llm_model.clone(),
@@ -1312,6 +1339,7 @@ fn load_config(ui: &mut UiState) {
         if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
             ui.ui_scale = cfg.ui_scale;
             ui.text_scale = cfg.text_scale;
+            ui.chat_text_scale = cfg.chat_text_scale;
             ui.speaker_colors = cfg.speaker_colors;
             ui.llm_base_url = if cfg.llm_base_url.is_empty() {
                 "http://localhost:1234/v1".into()
@@ -1333,10 +1361,14 @@ const MIN_UI_SCALE: f32 = 0.75;
 const MAX_UI_SCALE: f32 = 1.5;
 const MIN_TEXT_SCALE: f32 = 0.75;
 const MAX_TEXT_SCALE: f32 = 1.5;
+const MIN_CHAT_TEXT_SCALE: f32 = 0.75;
+const MAX_CHAT_TEXT_SCALE: f32 = 2.0;
 
 fn sanitize_ui_scales(ui: &mut UiState) {
     ui.ui_scale = sanitize_scale(ui.ui_scale, 1.0, MIN_UI_SCALE, MAX_UI_SCALE);
     ui.text_scale = sanitize_scale(ui.text_scale, 1.0, MIN_TEXT_SCALE, MAX_TEXT_SCALE);
+    ui.chat_text_scale =
+        sanitize_scale(ui.chat_text_scale, 1.0, MIN_CHAT_TEXT_SCALE, MAX_CHAT_TEXT_SCALE);
 }
 
 fn sanitize_scale(value: f32, default: f32, min: f32, max: f32) -> f32 {

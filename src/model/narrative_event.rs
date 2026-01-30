@@ -98,6 +98,8 @@ pub enum NarrativeEvent {
         rewards: Option<Vec<String>>,
         #[serde(default, rename = "sub_quests", alias = "subquests", alias = "objectives")]
         sub_quests: Option<Vec<crate::model::game_state::QuestStep>>,
+        #[serde(default)]
+        declinable: Option<bool>,
     },
     UpdateQuest {
         id: String,

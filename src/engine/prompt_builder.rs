@@ -42,7 +42,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - rest { description }\n\
 - grant_power { id, name, description }\n\
 - modify_stat { stat_id, delta }\n\
-- start_quest { id, title, description, rewards?, sub_quests? }\n\
+- start_quest { id, title, description, rewards?, sub_quests?, declinable? }\n\
 - update_quest { id, title?, description?, status?, rewards?, sub_quests? }\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
@@ -59,6 +59,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         prompt.push_str(
             "Event Notes:\n\
 - sub_quests is an array of objects like { id, description, completed? }\n\
+- start_quest should include rewards (can be empty) and may include declinable for world quests\n\
 - update_quest may send partial updates for sub_quests (id required)\n\n"
         );
         prompt.push_str(
@@ -76,6 +77,43 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - unlock:prisoners\n\
 - unlock:npcs_on_mission\n\n"
         );
+
+        prompt.push_str("Quest Rules:\n");
+        if context.world.world_quests_enabled {
+            prompt.push_str("- World quests are ENABLED.\n");
+            prompt.push_str(
+                "- When the world offers a quest, include the exact line: \"*ding* the world is offering you a quest.\"\n",
+            );
+            if context.world.world_quests_mandatory {
+                prompt.push_str(
+                    "- If the world quest is mandatory, set declinable: false and you may emit start_quest immediately.\n",
+                );
+            } else {
+                prompt.push_str(
+                    "- Do NOT use declinable: false unless mandatory world quests are enabled.\n",
+                );
+            }
+            prompt.push_str(
+                "- For declinable world quests, emit start_quest ONLY after the player explicitly accepts.\n",
+            );
+        } else {
+            prompt.push_str("- World quests are DISABLED.\n");
+        }
+        if context.world.npc_quests_enabled {
+            prompt.push_str("- NPC quests are ENABLED.\n");
+            prompt.push_str(
+                "- NPCs must explicitly say: \"I hereby offer you a quest.\" when offering.\n",
+            );
+            prompt.push_str(
+                "- Emit start_quest ONLY after the player explicitly accepts.\n",
+            );
+            prompt.push_str(
+                "- start_quest must include a title and rewards (can be an empty array).\n",
+            );
+        } else {
+            prompt.push_str("- NPC quests are DISABLED.\n");
+        }
+        prompt.push('\n');
 
         /* =========================
            WORLD
@@ -349,7 +387,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - rest { description }\n\
 - grant_power { id, name, description }\n\
 - modify_stat { stat_id, delta }\n\
-- start_quest { id, title, description, rewards?, sub_quests? }\n\
+- start_quest { id, title, description, rewards?, sub_quests?, declinable? }\n\
 - update_quest { id, title?, description?, status?, rewards?, sub_quests? }\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
@@ -363,6 +401,43 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - currency_change { currency, delta }\n\
 - request_context { topics }\n\n"
         );
+
+        prompt.push_str("Quest Rules:\n");
+        if context.world.world_quests_enabled {
+            prompt.push_str("- World quests are ENABLED.\n");
+            prompt.push_str(
+                "- When the world offers a quest, include the exact line: \"*ding* the world is offering you a quest.\"\n",
+            );
+            if context.world.world_quests_mandatory {
+                prompt.push_str(
+                    "- If the world quest is mandatory, set declinable: false and you may emit start_quest immediately.\n",
+                );
+            } else {
+                prompt.push_str(
+                    "- Do NOT use declinable: false unless mandatory world quests are enabled.\n",
+                );
+            }
+            prompt.push_str(
+                "- For declinable world quests, emit start_quest ONLY after the player explicitly accepts.\n",
+            );
+        } else {
+            prompt.push_str("- World quests are DISABLED.\n");
+        }
+        if context.world.npc_quests_enabled {
+            prompt.push_str("- NPC quests are ENABLED.\n");
+            prompt.push_str(
+                "- NPCs must explicitly say: \"I hereby offer you a quest.\" when offering.\n",
+            );
+            prompt.push_str(
+                "- Emit start_quest ONLY after the player explicitly accepts.\n",
+            );
+            prompt.push_str(
+                "- start_quest must include a title and rewards (can be an empty array).\n",
+            );
+        } else {
+            prompt.push_str("- NPC quests are DISABLED.\n");
+        }
+        prompt.push('\n');
 
         prompt.push_str("WORLD TITLE:\n");
         prompt.push_str(&format!("{}\n\n", context.world.title));

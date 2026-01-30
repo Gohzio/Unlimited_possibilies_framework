@@ -166,6 +166,7 @@ pub fn apply_event(
             description,
             rewards,
             sub_quests,
+            declinable: _,
         } => {
             if state.quests.contains_key(&id) {
                 return EventApplyOutcome::Rejected {

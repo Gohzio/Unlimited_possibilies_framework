@@ -12,4 +12,6 @@ pub struct GameSave {
     pub party: Vec<PartyMember>,
     pub messages: Vec<Message>,
     pub internal_state: InternalGameState,
+    #[serde(default)]
+    pub speaker_colors: crate::ui::app::SpeakerColors,
 }

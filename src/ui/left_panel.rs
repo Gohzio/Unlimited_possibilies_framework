@@ -235,6 +235,7 @@ fn collect_local_npcs(state: &UiState) -> Vec<LocalNpc> {
 
 fn draw_quests(ui: &mut egui::Ui, state: &UiState) {
     ui.heading("Quests");
+    ui.set_width(ui.available_width());
 
     let Some(snapshot) = &state.snapshot else {
         ui.label("No quests yet.");
@@ -251,25 +252,25 @@ fn draw_quests(ui: &mut egui::Ui, state: &UiState) {
 
     for quest in quests {
         ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(&quest.title);
+            ui.horizontal_wrapped(|ui| {
+                ui.add(egui::Label::new(&quest.title).wrap());
                 ui.add_space(4.0);
-                ui.label(format!("({})", quest_status_label(&quest.status)));
+                ui.add(egui::Label::new(format!("({})", quest_status_label(&quest.status))).wrap());
             });
 
             if !quest.description.trim().is_empty() {
-                ui.label(&quest.description);
+                ui.add(egui::Label::new(&quest.description).wrap());
             }
 
             if !quest.rewards.is_empty() {
-                ui.label("Rewards:");
+                ui.add(egui::Label::new("Rewards:").wrap());
                 for reward in &quest.rewards {
-                    ui.label(format!("- {}", reward));
+                    ui.add(egui::Label::new(format!("- {}", reward)).wrap());
                 }
             }
 
             if !quest.sub_quests.is_empty() {
-                ui.label("Sub-quests:");
+                ui.add(egui::Label::new("Sub-quests:").wrap());
                 for step in &quest.sub_quests {
                     let mut completed = step.completed;
                     ui.add_enabled(

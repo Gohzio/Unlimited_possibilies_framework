@@ -37,6 +37,7 @@ pub enum EngineCommand {
         world: crate::ui::app::WorldDefinition,
         player: crate::ui::app::CharacterDefinition,
         party: Vec<crate::ui::app::PartyMember>,
+        speaker_colors: crate::ui::app::SpeakerColors,
     },
 
     LoadGame {

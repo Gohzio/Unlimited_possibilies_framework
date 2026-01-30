@@ -359,6 +359,25 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
         });
     });
 
+    ui.collapsing("Quest Rules", |ui| {
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.checkbox(&mut w.world_quests_enabled, "World can generate quests");
+            ui.add_enabled_ui(w.world_quests_enabled, |ui| {
+                ui.checkbox(
+                    &mut w.world_quests_mandatory,
+                    "World quests can be mandatory (non-declinable)",
+                );
+            });
+            ui.checkbox(&mut w.npc_quests_enabled, "NPCs can offer quests");
+            ui.separator();
+            ui.label("World quest offer phrase:");
+            ui.label("*ding* the world is offering you a quest.");
+            ui.add_space(4.0);
+            ui.label("NPC quest offer phrase:");
+            ui.label("I hereby offer you a quest.");
+        });
+    });
+
     ui.add_space(6.0);
     if !state.world_locked {
         if ui

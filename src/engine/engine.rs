@@ -26,6 +26,12 @@ pub struct Engine {
     game_state: InternalGameState,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum QuestOfferSource {
+    World,
+    Npc,
+}
+
 impl Engine {
     pub fn new(
         rx: Receiver<EngineCommand>,
@@ -223,7 +229,20 @@ pub fn run(&mut self) {
                     self.messages.extend(new_messages);
 
                     let mut applications = Vec::new();
+                    let offer_source = quest_offer_source(narrative);
+                    let player_accepts = player_accepts_quest(&text);
                     for event in events {
+                        if let NarrativeEvent::StartQuest { .. } = event {
+                            if let Some(reason) =
+                                validate_start_quest(&event, offer_source, player_accepts, &context.world)
+                            {
+                                applications.push(EventApplication {
+                                    event,
+                                    outcome: EventApplyOutcome::Deferred { reason },
+                                });
+                                continue;
+                            }
+                        }
                         let outcome = apply_event(&mut self.game_state, event.clone());
                         applications.push(EventApplication { event, outcome });
                     }
@@ -248,8 +267,21 @@ pub fn run(&mut self) {
 
                 // 8. Apply events
                 let mut applications = Vec::new();
+                let offer_source = quest_offer_source(narrative);
+                let player_accepts = player_accepts_quest(&text);
 
                 for event in events {
+                    if let NarrativeEvent::StartQuest { .. } = event {
+                        if let Some(reason) =
+                            validate_start_quest(&event, offer_source, player_accepts, &context.world)
+                        {
+                            applications.push(EventApplication {
+                                event,
+                                outcome: EventApplyOutcome::Deferred { reason },
+                            });
+                            continue;
+                        }
+                    }
                     let outcome = apply_event(&mut self.game_state, event.clone());
                     applications.push(EventApplication {
                         event,
@@ -325,14 +357,21 @@ pub fn run(&mut self) {
             /* =========================
                Save / Load Game
                ========================= */
-            EngineCommand::SaveGame { path, world, player, party } => {
+            EngineCommand::SaveGame {
+                path,
+                world,
+                player,
+                party,
+                speaker_colors,
+            } => {
                 let save = GameSave {
-                    version: 1,
+                    version: 2,
                     world,
                     player,
                     party,
                     messages: self.messages.clone(),
                     internal_state: self.game_state.clone(),
+                    speaker_colors,
                 };
                 let result = serde_json::to_string_pretty(&save)
                     .map_err(|e| e.to_string())
@@ -805,4 +844,77 @@ fn move_selected_loot_to_inventory(
 
     state.loot = remaining;
     (applications, moved_labels)
+}
+
+fn quest_offer_source(narrative: &str) -> Option<QuestOfferSource> {
+    let n = narrative.to_ascii_lowercase();
+    if n.contains("*ding* the world is offering you a quest.") {
+        return Some(QuestOfferSource::World);
+    }
+    if n.contains("i hereby offer you a quest.") {
+        return Some(QuestOfferSource::Npc);
+    }
+    None
+}
+
+fn player_accepts_quest(input: &str) -> bool {
+    let t = input.to_ascii_lowercase();
+    let phrases = [
+        "i accept",
+        "i accept the quest",
+        "accept quest",
+        "accept the quest",
+        "yes i accept",
+        "yes, i accept",
+        "i agree",
+        "i will do it",
+    ];
+    phrases.iter().any(|p| t.contains(p))
+}
+
+fn validate_start_quest(
+    event: &NarrativeEvent,
+    offer_source: Option<QuestOfferSource>,
+    player_accepts: bool,
+    world: &crate::ui::app::WorldDefinition,
+) -> Option<String> {
+    let NarrativeEvent::StartQuest { declinable, .. } = event else {
+        return None;
+    };
+
+    let source = match offer_source {
+        Some(source) => source,
+        None => {
+            return Some("Quest rejected: missing quest offer phrase.".to_string());
+        }
+    };
+
+    match source {
+        QuestOfferSource::World => {
+            if !world.world_quests_enabled {
+                return Some("Quest rejected: world quests are disabled.".to_string());
+            }
+            if declinable == &Some(false) && !world.world_quests_mandatory {
+                return Some("Quest rejected: mandatory world quests are disabled.".to_string());
+            }
+            if declinable == &Some(false) && world.world_quests_mandatory {
+                return None;
+            }
+            if player_accepts {
+                None
+            } else {
+                Some("Quest pending: player has not accepted the world quest.".to_string())
+            }
+        }
+        QuestOfferSource::Npc => {
+            if !world.npc_quests_enabled {
+                return Some("Quest rejected: NPC quests are disabled.".to_string());
+            }
+            if player_accepts {
+                None
+            } else {
+                Some("Quest pending: player has not accepted the quest.".to_string())
+            }
+        }
+    }
 }

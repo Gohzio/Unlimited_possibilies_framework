@@ -4,6 +4,9 @@ use serde_json::Value;
 /// Decode raw LLM JSON into typed NarrativeEvents
 pub fn decode_llm_events(json: &str) -> Result<Vec<NarrativeEvent>, String> {
     let normalized = normalize_events_json(json);
+    if normalized.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     let value: Value = serde_json::from_str(&normalized)
         .or_else(|e| {
             if let Some(extracted) = extract_json_array(&normalized) {
@@ -14,6 +17,13 @@ pub fn decode_llm_events(json: &str) -> Result<Vec<NarrativeEvent>, String> {
         })
         .or_else(|e| {
             if let Some(items) = parse_loose_events(&normalized) {
+                Ok(Value::Array(items))
+            } else {
+                Err(e)
+            }
+        })
+        .or_else(|e| {
+            if let Some(items) = parse_single_word_event(&normalized) {
                 Ok(Value::Array(items))
             } else {
                 Err(e)
@@ -130,6 +140,19 @@ fn parse_loose_events(s: &str) -> Option<Vec<Value>> {
     } else {
         Some(items)
     }
+}
+
+fn parse_single_word_event(s: &str) -> Option<Vec<Value>> {
+    let s = s.trim();
+    if s.is_empty() || s.contains(char::is_whitespace) {
+        return None;
+    }
+    if s.contains('[') || s.contains('{') || s.contains(':') {
+        return None;
+    }
+    let mut obj = serde_json::Map::new();
+    obj.insert("type".to_string(), Value::String(s.to_string()));
+    Some(vec![Value::Object(obj)])
 }
 
 fn split_pairs(s: &str) -> Vec<String> {
