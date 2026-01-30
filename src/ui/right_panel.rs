@@ -12,9 +12,10 @@ pub fn draw_right_panel(
 ) {
     egui::SidePanel::right("right_panel")
         .resizable(true)
-        .default_width(340.0)
+        .default_width(ui_state.right_panel_width)
         .min_width(260.0)
         .show(ctx, |ui| {
+            ui_state.right_panel_width = ui.available_width().max(0.0);
             // Tab selector
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut ui_state.right_tab, RightTab::Player, "Player");
@@ -44,10 +45,10 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
     let mut do_load = false;
     let mut do_upload = false;
 
+    if ui.button("🖼 Upload Image").clicked() {
+        do_upload = true;
+    }
     ui.horizontal(|ui| {
-        if ui.button("🖼 Upload Image").clicked() {
-            do_upload = true;
-        }
         if ui.button("💾 Save Character").clicked() {
             do_save = true;
         }

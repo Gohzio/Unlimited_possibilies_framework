@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::engine::prompt_builder::PromptBuilder;
-use crate::engine::llm_client::{call_lm_studio, test_connection};
+use crate::engine::llm_client::{call_llm, test_connection};
 use crate::engine::narrative_parser::parse_narrative;
 
 use crate::model::event_result::{
@@ -66,7 +66,7 @@ pub fn run(&mut self) {
             /* =========================
                Player input → Prompt → LLM
                ========================= */
-            EngineCommand::SubmitPlayerInput { text, context } => {
+            EngineCommand::SubmitPlayerInput { text, context, llm } => {
                 // 1. Record player input
                 self.messages.push(Message::User(text.clone()));
 
@@ -133,7 +133,7 @@ pub fn run(&mut self) {
                 let prompt = PromptBuilder::build(&context, &text);
 
                 // 3. Call LM Studio
-                let llm_output = match call_lm_studio(prompt) {
+                let llm_output = match call_llm(prompt, &llm) {
                     Ok(text) => text,
                     Err(e) => {
                         self.messages.push(Message::System(format!(
@@ -179,7 +179,7 @@ pub fn run(&mut self) {
                         &requested_context,
                         &recent_history,
                     );
-                    let llm_output = match call_lm_studio(followup_prompt) {
+                    let llm_output = match call_llm(followup_prompt, &llm) {
                         Ok(text) => text,
                         Err(e) => {
                             self.messages.push(Message::System(format!(
@@ -279,8 +279,8 @@ pub fn run(&mut self) {
             /* =========================
                Connect to LM Studio
                ========================= */
-            EngineCommand::ConnectToLlm => {
-                match test_connection() {
+            EngineCommand::ConnectToLlm { llm } => {
+                match test_connection(&llm) {
                     Ok(msg) => {
                         let _ = self.tx.send(
                             EngineResponse::LlmConnectionResult {

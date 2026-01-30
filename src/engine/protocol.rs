@@ -3,6 +3,7 @@ use crate::model::event_result::NarrativeApplyReport;
 use crate::model::game_state::GameStateSnapshot;
 use crate::model::game_context::GameContext;
 use crate::model::game_save::GameSave;
+use crate::engine::llm_client::LlmConfig;
 
 #[derive(Debug)]
 pub enum EngineCommand {
@@ -10,6 +11,7 @@ pub enum EngineCommand {
     SubmitPlayerInput {
         text: String,
         context: GameContext,
+        llm: LlmConfig,
     },
 
     /// Initialize narrative with opening message (world load)
@@ -18,7 +20,9 @@ pub enum EngineCommand {
     },
 
     /// Load / switch LLM backend
-    ConnectToLlm,
+    ConnectToLlm {
+        llm: LlmConfig,
+    },
 
     /// UI-driven: move an NPC into the party without LLM involvement
     AddNpcToParty {

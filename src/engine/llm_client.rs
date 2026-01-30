@@ -2,6 +2,13 @@ use serde::{Deserialize, Serialize};
 use reqwest::blocking::Client;
 use anyhow::Result;
 
+#[derive(Clone, Debug)]
+pub struct LlmConfig {
+    pub base_url: String,
+    pub model: String,
+    pub api_key: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct ChatCompletionRequest {
     pub model: String,
@@ -29,11 +36,11 @@ pub struct Choice {
 pub struct ChatMessageResponse {
     pub content: String,
 }
-pub fn call_lm_studio(prompt: String) -> anyhow::Result<String> {
+pub fn call_llm(prompt: String, cfg: &LlmConfig) -> anyhow::Result<String> {
     let client = reqwest::blocking::Client::new();
 
     let req = ChatCompletionRequest {
-        model: "local-model".into(),
+        model: cfg.model.clone(),
         temperature: 0.7,
         messages: vec![
             ChatMessage {
@@ -43,25 +50,34 @@ pub fn call_lm_studio(prompt: String) -> anyhow::Result<String> {
         ],
     };
 
-    let resp = client
-        .post("http://localhost:1234/v1/chat/completions")
-        .json(&req)
-        .send()?
-        .json::<ChatCompletionResponse>()?;
+    let url = join_url(&cfg.base_url, "chat/completions");
+    let mut request = client.post(url).json(&req);
+    if let Some(key) = cfg.api_key.as_ref().filter(|k| !k.trim().is_empty()) {
+        request = request.bearer_auth(key);
+    }
+
+    let resp = request.send()?.json::<ChatCompletionResponse>()?;
 
     Ok(resp.choices[0].message.content.clone())
 }
 
-pub fn test_connection() -> Result<String> {
+pub fn test_connection(cfg: &LlmConfig) -> Result<String> {
     let client = Client::new();
 
-    let resp: serde_json::Value = client
-        .get("http://localhost:1234/v1/models")
-        .send()?
-        .json()?;
+    let url = join_url(&cfg.base_url, "models");
+    let mut request = client.get(url);
+    if let Some(key) = cfg.api_key.as_ref().filter(|k| !k.trim().is_empty()) {
+        request = request.bearer_auth(key);
+    }
+    let resp: serde_json::Value = request.send()?.json()?;
 
     Ok(format!(
         "Connected ({} models available)",
         resp["data"].as_array().map(|a| a.len()).unwrap_or(0)
     ))
+}
+
+fn join_url(base: &str, path: &str) -> String {
+    let base = base.trim_end_matches('/');
+    format!("{}/{}", base, path)
 }

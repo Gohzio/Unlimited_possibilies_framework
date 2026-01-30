@@ -15,6 +15,7 @@ use super::center_panel::draw_center_panel;
 use super::right_panel::draw_right_panel;
 
 use crate::engine::engine::Engine;
+use crate::engine::llm_client::LlmConfig;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 
 use crate::model::game_state::GameStateSnapshot;
@@ -198,6 +199,9 @@ pub struct UiState {
 
     pub llm_connected: bool,
     pub llm_status: String,
+    pub llm_base_url: String,
+    pub llm_model: String,
+    pub llm_api_key: String,
 
     pub left_tab: LeftTab,
     pub right_tab: RightTab,      // NEW: track which right panel tab is active
@@ -205,6 +209,7 @@ pub struct UiState {
     pub world_locked: bool,
     pub new_stat_name: String,    // NEW: for adding new stats
     pub new_stat_value: i32,      // NEW: for adding new stats
+    pub right_panel_width: f32,
 
     pub character_image: Option<egui::TextureHandle>,
     pub character_image_rgba: Option<Vec<u8>>,
@@ -236,6 +241,9 @@ impl Default for UiState {
 
             llm_connected: false,
             llm_status: "Not connected".into(),
+            llm_base_url: "http://localhost:1234/v1".into(),
+            llm_model: "local-model".into(),
+            llm_api_key: String::new(),
 
             left_tab: LeftTab::Party,
             right_tab: RightTab::Player, // NEW: default tab
@@ -243,6 +251,7 @@ impl Default for UiState {
             world_locked: false,
             new_stat_name: String::new(),
             new_stat_value: 10,
+            right_panel_width: 340.0,
 
             character_image: None,
             character_image_rgba: None,
@@ -250,6 +259,33 @@ impl Default for UiState {
 
             optional_tabs: OptionalTabs::default(),
             base_text_sizes: None,
+        }
+    }
+}
+
+impl UiState {
+    pub fn llm_config(&self) -> LlmConfig {
+        let base_url = if self.llm_base_url.trim().is_empty() {
+            "http://localhost:1234/v1".to_string()
+        } else {
+            self.llm_base_url.trim().to_string()
+        };
+
+        let model = if self.llm_model.trim().is_empty() {
+            "local-model".to_string()
+        } else {
+            self.llm_model.trim().to_string()
+        };
+
+        let api_key = self.llm_api_key.trim();
+        LlmConfig {
+            base_url,
+            model,
+            api_key: if api_key.is_empty() {
+                None
+            } else {
+                Some(api_key.to_string())
+            },
         }
     }
 }
@@ -942,6 +978,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub text_scale: f32,
     pub speaker_colors: SpeakerColors,
+    #[serde(default)]
+    pub llm_base_url: String,
+    #[serde(default)]
+    pub llm_model: String,
+    #[serde(default)]
+    pub llm_api_key: String,
 }
 
 impl Default for AppConfig {
@@ -950,6 +992,9 @@ impl Default for AppConfig {
             ui_scale: 1.0,
             text_scale: 1.0,
             speaker_colors: SpeakerColors::default(),
+            llm_base_url: "http://localhost:1234/v1".into(),
+            llm_model: "local-model".into(),
+            llm_api_key: String::new(),
         }
     }
 }
@@ -1119,8 +1164,39 @@ fn draw_options_window(
     egui::Window::new("🛠 Options")
         .open(&mut open)
         .show(ctx, |ui| {
-            if ui.button("🔌 Connect to LM Studio").clicked() {
-                let _ = cmd_tx.send(EngineCommand::ConnectToLlm);
+            ui.label("LLM Base URL");
+            let mut llm_changed = ui
+                .add(
+                    egui::TextEdit::singleline(&mut ui_state.llm_base_url)
+                        .hint_text("http://localhost:1234/v1"),
+                )
+                .changed();
+
+            ui.label("LLM Model");
+            llm_changed |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut ui_state.llm_model)
+                        .hint_text("local-model"),
+                )
+                .changed();
+
+            ui.label("LLM API Key (optional)");
+            llm_changed |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut ui_state.llm_api_key)
+                        .password(true)
+                        .hint_text(""),
+                )
+                .changed();
+
+            if llm_changed {
+                save_config(ui_state);
+            }
+
+            if ui.button("🔌 Connect to LLM").clicked() {
+                let _ = cmd_tx.send(EngineCommand::ConnectToLlm {
+                    llm: ui_state.llm_config(),
+                });
             }
 
             ui.add_space(6.0);
@@ -1222,6 +1298,9 @@ pub(crate) fn save_config(ui: &UiState) {
         ui_scale: ui.ui_scale,
         text_scale: ui.text_scale,
         speaker_colors: ui.speaker_colors.clone(),
+        llm_base_url: ui.llm_base_url.clone(),
+        llm_model: ui.llm_model.clone(),
+        llm_api_key: ui.llm_api_key.clone(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
         let _ = fs::write(config_path(), json);
@@ -1234,6 +1313,17 @@ fn load_config(ui: &mut UiState) {
             ui.ui_scale = cfg.ui_scale;
             ui.text_scale = cfg.text_scale;
             ui.speaker_colors = cfg.speaker_colors;
+            ui.llm_base_url = if cfg.llm_base_url.is_empty() {
+                "http://localhost:1234/v1".into()
+            } else {
+                cfg.llm_base_url
+            };
+            ui.llm_model = if cfg.llm_model.is_empty() {
+                "local-model".into()
+            } else {
+                cfg.llm_model
+            };
+            ui.llm_api_key = cfg.llm_api_key;
             sanitize_ui_scales(ui);
         }
     }

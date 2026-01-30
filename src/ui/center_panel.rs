@@ -205,7 +205,11 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
 
             if !text.is_empty() {
                 let context = app.build_game_context();
-                app.send_command(EngineCommand::SubmitPlayerInput { text, context });
+                app.send_command(EngineCommand::SubmitPlayerInput {
+                    text,
+                    context,
+                    llm: app.ui.llm_config(),
+                });
                 app.ui.input_text.clear();
             }
 
