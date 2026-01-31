@@ -103,6 +103,14 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         );
 
         prompt.push_str("Quest Rules:\n");
+        if context.world.is_rpg_world {
+            prompt.push_str(
+                "- This world is an RPG simulation. Only the player knows it; NPCs believe it is real.\n",
+            );
+            prompt.push_str(
+                "- NPCs must follow world rules and formally offer quests with explicit rewards.\n",
+            );
+        }
         if context.world.world_quests_enabled {
             prompt.push_str("- World quests are ENABLED.\n");
             prompt.push_str(
@@ -448,6 +456,14 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         );
 
         prompt.push_str("Quest Rules:\n");
+        if context.world.is_rpg_world {
+            prompt.push_str(
+                "- This world is an RPG simulation. Only the player knows it; NPCs believe it is real.\n",
+            );
+            prompt.push_str(
+                "- NPCs must follow world rules and formally offer quests with explicit rewards.\n",
+            );
+        }
         if context.world.world_quests_enabled {
             prompt.push_str("- World quests are ENABLED.\n");
             prompt.push_str(

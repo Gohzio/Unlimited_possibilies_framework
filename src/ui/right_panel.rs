@@ -361,6 +361,7 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
 
     ui.collapsing("Quest Rules", |ui| {
         ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.checkbox(&mut w.is_rpg_world, "Is an RPG world");
             ui.checkbox(&mut w.world_quests_enabled, "World can generate quests");
             ui.add_enabled_ui(w.world_quests_enabled, |ui| {
                 ui.checkbox(

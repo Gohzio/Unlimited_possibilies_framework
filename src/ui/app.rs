@@ -49,6 +49,8 @@ pub struct WorldDefinition {
     pub world_quests_mandatory: bool,
     #[serde(default)]
     pub npc_quests_enabled: bool,
+    #[serde(default)]
+    pub is_rpg_world: bool,
 }
 
 impl Default for WorldDefinition {
@@ -76,6 +78,7 @@ impl Default for WorldDefinition {
             world_quests_enabled: false,
             world_quests_mandatory: false,
             npc_quests_enabled: false,
+            is_rpg_world: false,
         }
     }
 }
