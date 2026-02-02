@@ -85,6 +85,18 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
         );
     }
 
+    if let Some(snapshot) = &state.snapshot {
+        let exp_to_next = snapshot.player.exp_to_next.max(1);
+        let exp = snapshot.player.exp.max(0);
+        let progress = (exp as f32 / exp_to_next as f32).clamp(0.0, 1.0);
+        ui.add(
+            egui::ProgressBar::new(progress)
+                .text(format!("EXP: {}/{}", exp, exp_to_next)),
+        );
+        ui.label(format!("EXP to next level: {}", exp_to_next));
+        ui.add_space(6.0);
+    }
+
     ui.separator();
 
     let c = &mut state.character;
@@ -359,6 +371,137 @@ fn draw_world(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
         });
     });
 
+    ui.collapsing("Experience Rules", |ui| {
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.label("Base EXP to reach level 2 is 100.");
+            ui.label("Next level requirement multiplies by this value.");
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Multiplier");
+                ui.add(
+                    egui::DragValue::new(&mut w.exp_multiplier)
+                        .speed(0.1)
+                        .range(1.0..=10.0),
+                );
+            });
+        });
+    });
+
+    ui.collapsing("Skill Progression", |ui| {
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.label("Repetition grants skills in tiers.");
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label("Base threshold");
+                ui.add(
+                    egui::DragValue::new(&mut w.repetition_threshold)
+                        .speed(1)
+                        .range(1..=1000),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Tier step");
+                ui.add(
+                    egui::DragValue::new(&mut w.repetition_tier_step)
+                        .speed(1)
+                        .range(1..=1000),
+                );
+            });
+
+            ui.add_space(6.0);
+            ui.label("Tier names (5):");
+            ensure_skill_tier_names(&mut w.skill_tier_names);
+            for i in 0..5 {
+                let label = format!("Tier {}", i + 1);
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    ui.text_edit_singleline(&mut w.skill_tier_names[i]);
+                });
+            }
+
+            ui.add_space(8.0);
+            ui.label("Per-skill thresholds (override base/step):");
+            let mut remove_idx: Option<usize> = None;
+            for (idx, entry) in w.skill_thresholds.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut entry.skill);
+                    ui.add(
+                        egui::DragValue::new(&mut entry.base)
+                            .speed(1)
+                            .range(1..=10000),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut entry.step)
+                            .speed(1)
+                            .range(1..=10000),
+                    );
+                    if ui.small_button("❌").clicked() {
+                        remove_idx = Some(idx);
+                    }
+                });
+                ensure_skill_tier_names(&mut entry.tier_names);
+                for i in 0..5 {
+                    let label = format!("  Tier {}", i + 1);
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        ui.text_edit_singleline(&mut entry.tier_names[i]);
+                    });
+                }
+            }
+            if let Some(idx) = remove_idx {
+                w.skill_thresholds.remove(idx);
+            }
+            ui.horizontal(|ui| {
+                if ui.button("➕ Add Skill Override").clicked() {
+                    w.skill_thresholds.push(crate::ui::app::SkillThreshold {
+                        skill: "mining".to_string(),
+                        base: w.repetition_threshold.max(1),
+                        step: w.repetition_tier_step.max(1),
+                        tier_names: w.skill_tier_names.clone(),
+                    });
+                }
+            });
+        });
+    });
+
+    ui.collapsing("Power Evolution", |ui| {
+        ui.add_enabled_ui(!state.world_locked, |ui| {
+            ui.label("Power evolution triggers on repeated usage.");
+            ui.horizontal(|ui| {
+                ui.label("Base uses");
+                ui.add(
+                    egui::DragValue::new(&mut w.power_evolution_base)
+                        .speed(1)
+                        .range(1..=10000),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Tier step");
+                ui.add(
+                    egui::DragValue::new(&mut w.power_evolution_step)
+                        .speed(1)
+                        .range(1..=10000),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Multiplier min");
+                ui.add(
+                    egui::DragValue::new(&mut w.power_evolution_multiplier_min)
+                        .speed(0.1)
+                        .range(1.0..=10.0),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.label("Multiplier max");
+                ui.add(
+                    egui::DragValue::new(&mut w.power_evolution_multiplier_max)
+                        .speed(0.1)
+                        .range(1.0..=10.0),
+                );
+            });
+        });
+    });
+
     ui.collapsing("Quest Rules", |ui| {
         ui.add_enabled_ui(!state.world_locked, |ui| {
             ui.checkbox(&mut w.is_rpg_world, "Is an RPG world");
@@ -430,4 +573,26 @@ fn editable_list(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, placeh
         }
         ui.data_mut(|d| d.insert_persisted(id, new_item));
     });
+}
+
+fn ensure_skill_tier_names(names: &mut Vec<String>) {
+    let defaults = [
+        "Novice",
+        "Adept",
+        "Expert",
+        "Master",
+        "Grandmaster",
+    ];
+    if names.len() < 5 {
+        for i in names.len()..5 {
+            names.push(defaults[i].to_string());
+        }
+    } else if names.len() > 5 {
+        names.truncate(5);
+    }
+    for (i, name) in names.iter_mut().enumerate() {
+        if name.trim().is_empty() {
+            *name = defaults[i].to_string();
+        }
+    }
 }

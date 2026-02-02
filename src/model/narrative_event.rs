@@ -56,6 +56,26 @@ pub enum NarrativeEvent {
     Rest {
         description: String,
     },
+    Craft {
+        recipe: String,
+        #[serde(default)]
+        quantity: Option<u32>,
+        #[serde(default)]
+        quality: Option<String>,
+        #[serde(default)]
+        result: Option<String>,
+        #[serde(default)]
+        set_id: Option<String>,
+    },
+    Gather {
+        resource: String,
+        #[serde(default)]
+        quantity: Option<u32>,
+        #[serde(default)]
+        quality: Option<String>,
+        #[serde(default)]
+        set_id: Option<String>,
+    },
 
     AddPartyMember {
         id: String,
@@ -107,11 +127,34 @@ pub enum NarrativeEvent {
         stat_id: String,
         delta: i32,
     },
+    AddExp {
+        amount: i32,
+    },
+    LevelUp {
+        levels: u32,
+    },
+    EquipItem {
+        item_id: String,
+        slot: String,
+        #[serde(default)]
+        set_id: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+    },
+    UnequipItem {
+        item_id: String,
+    },
 
     StartQuest {
         id: String,
         title: String,
         description: String,
+        #[serde(default)]
+        difficulty: Option<String>,
+        #[serde(default)]
+        negotiable: Option<bool>,
+        #[serde(default)]
+        reward_options: Option<Vec<String>>,
         #[serde(default)]
         rewards: Option<Vec<String>>,
         #[serde(default, rename = "sub_quests", alias = "subquests", alias = "objectives")]
@@ -124,6 +167,12 @@ pub enum NarrativeEvent {
         title: Option<String>,
         description: Option<String>,
         status: Option<QuestStatus>,
+        #[serde(default)]
+        difficulty: Option<String>,
+        #[serde(default)]
+        negotiable: Option<bool>,
+        #[serde(default)]
+        reward_options: Option<Vec<String>>,
         rewards: Option<Vec<String>>,
         #[serde(rename = "sub_quests", alias = "subquests", alias = "objectives")]
         sub_quests: Option<Vec<QuestStepUpdate>>,
@@ -144,20 +193,46 @@ pub enum NarrativeEvent {
     AddItem {
         item_id: String,
         quantity: u32,
+        #[serde(default)]
+        set_id: Option<String>,
     },
     #[serde(rename = "drop")]
     Drop {
         item: String,
         quantity: Option<i32>,
         description: Option<String>,
+        #[serde(default)]
+        set_id: Option<String>,
     },
     SpawnLoot {
         item: String,
         quantity: Option<i32>,
         description: Option<String>,
+        #[serde(default)]
+        set_id: Option<String>,
     },
     CurrencyChange {
         currency: String,
+        delta: i32,
+    },
+    FactionSpawn {
+        id: String,
+        name: String,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+    },
+    FactionUpdate {
+        id: String,
+        name: Option<String>,
+        #[serde(default)]
+        kind: Option<String>,
+        #[serde(default)]
+        description: Option<String>,
+    },
+    FactionRepChange {
+        id: String,
         delta: i32,
     },
     Unknown {

@@ -16,6 +16,7 @@ use crate::model::game_state::LootDrop;
 use crate::model::message::Message;
 use crate::model::narrative_event::NarrativeEvent;
 use crate::model::game_save::GameSave;
+use rand::Rng;
 use std::fs;
 
 pub struct Engine {
@@ -73,6 +74,10 @@ pub fn run(&mut self) {
                Player input → Prompt → LLM
                ========================= */
             EngineCommand::SubmitPlayerInput { text, context, llm } => {
+                self.game_state.player.exp_multiplier = context.world.exp_multiplier.max(1.0);
+                sync_stats_from_context(&mut self.game_state, &context);
+                update_action_counts(&mut self.game_state, &text);
+                update_power_usage(&mut self.game_state, &text);
                 // 1. Record player input
                 self.messages.push(Message::User(text.clone()));
 
@@ -178,7 +183,7 @@ pub fn run(&mut self) {
                         &context,
                         &topics,
                     );
-                    let recent_history = tail_messages(&self.messages, 12);
+                    let recent_history = tail_messages(&self.messages, 5);
                     let followup_prompt = PromptBuilder::build_with_requested_context(
                         &context,
                         &text,
@@ -214,6 +219,7 @@ pub fn run(&mut self) {
                         }
                     };
 
+                    let start_level = self.game_state.player.level;
                     if events.iter().any(|e| matches!(e, NarrativeEvent::RequestContext { .. })) {
                         self.messages.push(Message::System(
                             "Context was already provided. Please respond with narrative and events."
@@ -265,6 +271,21 @@ pub fn run(&mut self) {
                         applications.push(EventApplication { event, outcome });
                     }
 
+                    maybe_grant_repetition_power(
+                        &mut self.game_state,
+                        &text,
+                        &context.world,
+                        &mut applications,
+                    );
+                    maybe_evolve_powers(&mut self.game_state, &context.world, &mut applications);
+                    apply_set_bonuses(&mut self.game_state, &mut applications);
+                    apply_level_stat_growth(
+                        &mut self.game_state,
+                        &context,
+                        start_level,
+                        &mut applications,
+                    );
+
                     if !applications.is_empty() {
                         let report = NarrativeApplyReport { applications };
                         let snapshot = (&self.game_state).into();
@@ -287,6 +308,7 @@ pub fn run(&mut self) {
                 let mut applications = Vec::new();
                 let offer_source = quest_offer_source(narrative);
                 let player_accepts = player_accepts_quest(&text);
+                let start_level = self.game_state.player.level;
 
                 for event in events {
                     if let NarrativeEvent::StartQuest { .. } = event {
@@ -324,6 +346,21 @@ pub fn run(&mut self) {
                         outcome,
                     });
                 }
+
+                maybe_grant_repetition_power(
+                    &mut self.game_state,
+                    &text,
+                    &context.world,
+                    &mut applications,
+                );
+                maybe_evolve_powers(&mut self.game_state, &context.world, &mut applications);
+                apply_set_bonuses(&mut self.game_state, &mut applications);
+                apply_level_stat_growth(
+                    &mut self.game_state,
+                    &context,
+                    start_level,
+                    &mut applications,
+                );
 
                 // 9. Send state mutation report
                 if !applications.is_empty() {
@@ -525,10 +562,13 @@ fn build_requested_context(
                 push_section(&mut out, "LOOT RULES", &format_loot_rules(context));
             }
             "player" | "character" => {
-                push_section(&mut out, "PLAYER", &format_player(context));
+                push_section(&mut out, "PLAYER", &format_player_state(state, context));
             }
             "stats" => {
-                push_section(&mut out, "STATS", &format_stats(context));
+                push_section(&mut out, "STATS", &format_state_stats(state));
+            }
+            "exp" | "experience" | "level" => {
+                push_section(&mut out, "EXP", &format_exp(state));
             }
             "powers" => {
                 push_section(&mut out, "POWERS", &format_list(&context.player.powers));
@@ -538,6 +578,16 @@ fn build_requested_context(
             }
             "inventory" => {
                 push_section(&mut out, "INVENTORY", &format_inventory(state));
+            }
+            "equipment" | "equipped" => {
+                push_section(&mut out, "EQUIPMENT", &format_equipment(state));
+                push_section(&mut out, "SET BONUSES", &format_set_bonuses(state));
+            }
+            "sets" | "set_bonuses" => {
+                push_section(&mut out, "SET BONUSES", &format_set_bonuses(state));
+            }
+            "crafting" | "gathering" => {
+                push_section(&mut out, "CRAFTING", &format_crafting_rules(context));
             }
             "weapons" => {
                 push_section(&mut out, "WEAPONS", &format_list(&state.player.weapons));
@@ -557,6 +607,9 @@ fn build_requested_context(
             "quests" => {
                 push_section(&mut out, "QUESTS", &format_quests(state));
             }
+            "factions" | "reputation" | "rep" => {
+                push_section(&mut out, "FACTIONS", &format_factions(state));
+            }
             "npcs" => {
                 push_section(&mut out, "NPCS", &format_npcs(state));
             }
@@ -565,6 +618,12 @@ fn build_requested_context(
             }
             "relationships" => {
                 push_section(&mut out, "RELATIONSHIPS", &format_relationships(state));
+            }
+            "skills" | "skill_rules" | "repetition" => {
+                push_section(&mut out, "SKILL PROGRESSION", &format_skill_rules(context));
+            }
+            "power_evolution" | "power_evolution_rules" => {
+                push_section(&mut out, "POWER EVOLUTION", &format_power_evolution_rules(context));
             }
             "flags" => {
                 push_section(&mut out, "FLAGS", &format_flags(state));
@@ -657,6 +716,12 @@ fn format_world(context: &crate::model::game_context::GameContext) -> String {
     }
     s.push_str("Loot Rules:\n");
     s.push_str(&format_loot_rules(context));
+    s.push_str("Experience Rules:\n");
+    s.push_str(&format_exp_rules(context));
+    s.push_str("Skill Progression:\n");
+    s.push_str(&format_skill_rules(context));
+    s.push_str("Power Evolution:\n");
+    s.push_str(&format_power_evolution_rules(context));
     s
 }
 
@@ -676,20 +741,138 @@ fn format_loot_rules(context: &crate::model::game_context::GameContext) -> Strin
     s
 }
 
-fn format_player(context: &crate::model::game_context::GameContext) -> String {
-    let p = &context.player;
+fn format_exp_rules(context: &crate::model::game_context::GameContext) -> String {
+    let mult = context.world.exp_multiplier.max(1.0);
     format!(
-        "Name: {}\nClass: {}\nBackground:\n{}\n",
-        p.name, p.class, p.background
+        "Base EXP to reach level 2 is 100.\nEach next level multiplies by x{}.\n",
+        trim_multiplier(mult)
     )
 }
 
-fn format_stats(context: &crate::model::game_context::GameContext) -> String {
-    if context.player.stats.is_empty() {
+fn format_skill_rules(context: &crate::model::game_context::GameContext) -> String {
+    let base = context.world.repetition_threshold.max(1);
+    let step = context.world.repetition_tier_step.max(1);
+    let mut s = format!(
+        "Base threshold: {} repeats.\nEach tier increases by +{} repeats.\n",
+        base, step
+    );
+    let names = normalized_tier_names(&context.world.skill_tier_names);
+    s.push_str(&format!(
+        "Tiers: {}, {}, {}, {}, {}.\n",
+        names[0], names[1], names[2], names[3], names[4]
+    ));
+    if !context.world.skill_thresholds.is_empty() {
+        s.push_str("Overrides:\n");
+        for entry in &context.world.skill_thresholds {
+            let skill = entry.skill.trim();
+            if skill.is_empty() {
+                continue;
+            }
+            let tier_names = normalized_tier_names(&entry.tier_names);
+            s.push_str(&format!(
+                "- {}: base {}, step {}, tiers: {}, {}, {}, {}, {}\n",
+                skill,
+                entry.base.max(1),
+                entry.step.max(1),
+                tier_names[0],
+                tier_names[1],
+                tier_names[2],
+                tier_names[3],
+                tier_names[4]
+            ));
+        }
+    }
+    s
+}
+
+fn format_crafting_rules(context: &crate::model::game_context::GameContext) -> String {
+    let loot = format_loot_rules(context);
+    format!(
+        "Crafting and gathering must follow loot rules.\n{}",
+        loot
+    )
+}
+
+fn format_power_evolution_rules(context: &crate::model::game_context::GameContext) -> String {
+    let base = context.world.power_evolution_base.max(1);
+    let step = context.world.power_evolution_step.max(1);
+    let min_mult = context.world.power_evolution_multiplier_min.max(1.0);
+    let max_mult = context
+        .world
+        .power_evolution_multiplier_max
+        .max(min_mult);
+    format!(
+        "Base uses: {}. Tier step: {}. Multiplier range: x{}–x{}.\n",
+        base,
+        step,
+        trim_multiplier(min_mult),
+        trim_multiplier(max_mult)
+    )
+}
+
+fn normalized_tier_names(names: &[String]) -> [String; 5] {
+    let defaults = ["Novice", "Adept", "Expert", "Master", "Grandmaster"];
+    let mut out = [
+        defaults[0].to_string(),
+        defaults[1].to_string(),
+        defaults[2].to_string(),
+        defaults[3].to_string(),
+        defaults[4].to_string(),
+    ];
+    for (i, name) in names.iter().take(5).enumerate() {
+        let trimmed = name.trim();
+        if !trimmed.is_empty() {
+            out[i] = trimmed.to_string();
+        }
+    }
+    out
+}
+
+fn trim_multiplier(value: f32) -> String {
+    let rounded = (value * 100.0).round() / 100.0;
+    let s = format!("{:.2}", rounded);
+    if let Some(stripped) = s.strip_suffix(".00") {
+        stripped.to_string()
+    } else if let Some(stripped) = s.strip_suffix('0') {
+        stripped.to_string()
+    } else {
+        s
+    }
+}
+
+fn format_player_state(
+    state: &InternalGameState,
+    context: &crate::model::game_context::GameContext,
+) -> String {
+    let p = &context.player;
+    let s = &state.player;
+    format!(
+        "Name: {}\nClass: {}\nLevel: {}\nEXP: {}/{}\nHP: {}/{}\nBackground:\n{}\n",
+        p.name,
+        p.class,
+        s.level,
+        s.exp,
+        s.exp_to_next,
+        s.hp,
+        s.max_hp,
+        p.background
+    )
+}
+
+fn format_exp(state: &InternalGameState) -> String {
+    let s = &state.player;
+    format!(
+        "EXP: {}/{}\nLevel: {}\nEXP to next level: {}\n",
+        s.exp, s.exp_to_next, s.level, s.exp_to_next
+    )
+}
+
+fn format_state_stats(state: &InternalGameState) -> String {
+    if state.stats.is_empty() {
         return "None\n".to_string();
     }
     let mut s = String::new();
-    for (k, v) in &context.player.stats {
+    for (k, v) in &state.stats {
         s.push_str(&format!("- {}: {}\n", k, v));
     }
     s
@@ -712,10 +895,15 @@ fn format_inventory(state: &InternalGameState) -> String {
     }
     let mut s = String::new();
     for item in state.inventory.values() {
-        if item.quantity <= 1 {
-            s.push_str(&format!("- {}\n", item.id));
+        let label = if item.quantity <= 1 {
+            format!("- {}", item.id)
         } else {
-            s.push_str(&format!("- {} x{}\n", item.id, item.quantity));
+            format!("- {} x{}", item.id, item.quantity)
+        };
+        if let Some(set_id) = &item.set_id {
+            s.push_str(&format!("{} (set: {})\n", label, set_id));
+        } else {
+            s.push_str(&format!("{}\n", label));
         }
     }
     s
@@ -728,6 +916,60 @@ fn format_currencies(state: &InternalGameState) -> String {
     let mut s = String::new();
     for (currency, amount) in &state.currencies {
         s.push_str(&format!("- {}: {}\n", currency, amount));
+    }
+    s
+}
+
+fn format_equipment(state: &InternalGameState) -> String {
+    if state.equipment.is_empty() {
+        return "None\n".to_string();
+    }
+    let mut s = String::new();
+    for item in state.equipment.values() {
+        let set_label = item
+            .set_id
+            .as_ref()
+            .map(|v| format!(" (set: {})", v))
+            .unwrap_or_default();
+        s.push_str(&format!(
+            "- {} [{}]{}\n",
+            item.item_id, item.slot, set_label
+        ));
+        if let Some(desc) = &item.description {
+            let trimmed = desc.trim();
+            if !trimmed.is_empty() {
+                s.push_str(&format!("  {}\n", trimmed));
+            }
+        }
+    }
+    s
+}
+
+fn format_set_bonuses(state: &InternalGameState) -> String {
+    if state.equipment.is_empty() {
+        return "None\n".to_string();
+    }
+    let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for item in state.equipment.values() {
+        let Some(set_id) = &item.set_id else { continue };
+        let entry = counts.entry(set_id.clone()).or_insert(0);
+        *entry = entry.saturating_add(1);
+    }
+    if counts.is_empty() {
+        return "None\n".to_string();
+    }
+    let mut s = String::new();
+    for (set_id, count) in counts {
+        let tier = if count >= 4 { 2 } else if count >= 2 { 1 } else { 0 };
+        let tier_label = match tier {
+            2 => "major",
+            1 => "minor",
+            _ => "none",
+        };
+        s.push_str(&format!(
+            "- {}: {} pieces ({} bonus)\n",
+            set_id, count, tier_label
+        ));
     }
     s
 }
@@ -763,6 +1005,20 @@ fn format_quests(state: &InternalGameState) -> String {
             quest_status_label(&quest.status),
             quest.title
         ));
+        if let Some(diff) = &quest.difficulty {
+            if !diff.trim().is_empty() {
+                s.push_str(&format!("  Difficulty: {}\n", diff.trim()));
+            }
+        }
+        if quest.negotiable {
+            s.push_str("  Negotiable rewards: yes\n");
+        }
+        if !quest.reward_options.is_empty() {
+            s.push_str("  Reward options:\n");
+            for opt in &quest.reward_options {
+                s.push_str(&format!("  - {}\n", opt));
+            }
+        }
         if !quest.description.trim().is_empty() {
             s.push_str(&format!("  Description: {}\n", quest.description));
         }
@@ -817,6 +1073,26 @@ fn format_relationships(state: &InternalGameState) -> String {
     s
 }
 
+fn format_factions(state: &InternalGameState) -> String {
+    if state.factions.is_empty() {
+        return "None\n".to_string();
+    }
+    let mut s = String::new();
+    for faction in state.factions.values() {
+        let kind = faction.kind.clone().unwrap_or_else(|| "unknown".to_string());
+        s.push_str(&format!(
+            "- {} ({}) rep: {}\n",
+            faction.name, kind, faction.reputation
+        ));
+        if let Some(desc) = &faction.description {
+            let trimmed = desc.trim();
+            if !trimmed.is_empty() {
+                s.push_str(&format!("  {}\n", trimmed));
+            }
+        }
+    }
+    s
+}
 fn format_flags(state: &InternalGameState) -> String {
     if state.flags.is_empty() {
         return "None\n".to_string();
@@ -883,11 +1159,15 @@ fn move_selected_loot_to_inventory(
                     id: drop.item.clone(),
                     quantity: 0,
                     description: None,
+                    set_id: None,
                 },
             );
             entry.quantity = entry.quantity.saturating_add(drop.quantity);
             if entry.description.is_none() {
                 entry.description = drop.description.clone();
+            }
+            if entry.set_id.is_none() {
+                entry.set_id = drop.set_id.clone();
             }
 
             moved_labels.push(format!("{} x{}", drop.item, drop.quantity));
@@ -895,6 +1175,7 @@ fn move_selected_loot_to_inventory(
                 event: NarrativeEvent::AddItem {
                     item_id: drop.item,
                     quantity: drop.quantity,
+                    set_id: drop.set_id,
                 },
                 outcome: EventApplyOutcome::Applied,
             });
@@ -933,6 +1214,417 @@ fn player_accepts_quest(input: &str) -> bool {
     phrases.iter().any(|p| t.contains(p))
 }
 
+fn update_action_counts(state: &mut InternalGameState, input: &str) {
+    let text = input.to_lowercase();
+    let actions = [
+        ("jumping", ["jump", "jumps", "jumping", "leap", "hop"]),
+        ("mining", ["mine", "mines", "mining", "pickaxe", "ore"]),
+        ("fishing", ["fish", "fishing", "cast line", "reel"]),
+        ("woodcutting", ["chop", "chopping", "woodcut", "lumber", "axe"]),
+        ("crafting", ["craft", "crafting", "forge", "smith", "smithing"]),
+        ("stealth", ["sneak", "sneaking", "stealth", "hide", "hidden"]),
+        ("being_hit", ["i'm hit", "i am hit", "hit me", "hits me", "struck", "wounded", "hurt", "took damage", "i take damage"]),
+    ];
+
+    for (action, keywords) in actions {
+        if keywords.iter().any(|k| text.contains(k)) {
+            let entry = state.action_counts.entry(action.to_string()).or_insert(0);
+            *entry = entry.saturating_add(1);
+        }
+    }
+}
+
+fn sync_stats_from_context(state: &mut InternalGameState, context: &crate::model::game_context::GameContext) {
+    for (k, v) in &context.player.stats {
+        state.stats.entry(k.to_string()).or_insert(*v);
+    }
+}
+
+fn apply_level_stat_growth(
+    state: &mut InternalGameState,
+    context: &crate::model::game_context::GameContext,
+    start_level: u32,
+    applications: &mut Vec<EventApplication>,
+) {
+    let gained = state.player.level.saturating_sub(start_level);
+    if gained == 0 {
+        return;
+    }
+
+    let class = context.player.class.to_lowercase();
+    let action_counts = &state.action_counts;
+    let threshold = context.world.repetition_threshold.max(1);
+
+    for _ in 0..gained {
+        let mut deltas: Vec<(&str, i32)> = Vec::new();
+
+        if class.contains("tank") || class.contains("guardian") || class.contains("paladin") {
+            deltas.push(("constitution", 2));
+            deltas.push(("strength", 1));
+        } else if class.contains("warrior") || class.contains("fighter") || class.contains("barbarian") {
+            deltas.push(("strength", 2));
+            deltas.push(("constitution", 1));
+        } else if class.contains("rogue") || class.contains("assassin") || class.contains("ranger") {
+            deltas.push(("agility", 2));
+            deltas.push(("luck", 1));
+        } else if class.contains("mage") || class.contains("wizard") || class.contains("sorcerer") {
+            deltas.push(("intelligence", 2));
+            deltas.push(("luck", 1));
+        } else if class.contains("cleric") || class.contains("priest") || class.contains("druid") {
+            deltas.push(("intelligence", 1));
+            deltas.push(("constitution", 1));
+            deltas.push(("luck", 1));
+        } else {
+            deltas.push(("strength", 1));
+            deltas.push(("constitution", 1));
+        }
+
+        if action_counts.get("being_hit").copied().unwrap_or(0) >= threshold {
+            deltas.push(("constitution", 2));
+        }
+        if action_counts.get("mining").copied().unwrap_or(0) >= threshold {
+            deltas.push(("strength", 1));
+        }
+        if action_counts.get("woodcutting").copied().unwrap_or(0) >= threshold {
+            deltas.push(("strength", 1));
+        }
+        if action_counts.get("jumping").copied().unwrap_or(0) >= threshold {
+            deltas.push(("agility", 1));
+        }
+        if action_counts.get("stealth").copied().unwrap_or(0) >= threshold {
+            deltas.push(("agility", 1));
+        }
+        if action_counts.get("crafting").copied().unwrap_or(0) >= threshold {
+            deltas.push(("intelligence", 1));
+        }
+        if action_counts.get("fishing").copied().unwrap_or(0) >= threshold {
+            deltas.push(("luck", 1));
+        }
+
+        apply_stat_deltas(state, deltas, applications);
+    }
+}
+
+fn apply_stat_deltas(
+    state: &mut InternalGameState,
+    deltas: Vec<(&str, i32)>,
+    applications: &mut Vec<EventApplication>,
+) {
+    for (stat_id, delta) in deltas {
+        let entry = state.stats.entry(stat_id.to_string()).or_insert(10);
+        *entry += delta;
+        let event = NarrativeEvent::ModifyStat {
+            stat_id: stat_id.to_string(),
+            delta,
+        };
+        applications.push(EventApplication {
+            event,
+            outcome: EventApplyOutcome::Applied,
+        });
+    }
+}
+
+fn update_power_usage(state: &mut InternalGameState, input: &str) {
+    if state.powers.is_empty() {
+        return;
+    }
+    let text = input.to_lowercase();
+    for power in state.powers.values() {
+        let name = power.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if text.contains(&name.to_lowercase()) {
+            let entry = state.power_usage_counts.entry(power.id.clone()).or_insert(0);
+            *entry = entry.saturating_add(1);
+        }
+    }
+}
+
+fn apply_set_bonuses(state: &mut InternalGameState, applications: &mut Vec<EventApplication>) {
+    let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    for item in state.equipment.values() {
+        let Some(set_id) = &item.set_id else { continue };
+        let entry = counts.entry(set_id.clone()).or_insert(0);
+        *entry = entry.saturating_add(1);
+    }
+
+    let mut affected: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for set_id in counts.keys() {
+        affected.insert(set_id.clone());
+    }
+    for set_id in state.set_bonus_tiers.keys() {
+        affected.insert(set_id.clone());
+    }
+
+    for set_id in affected {
+        let count = counts.get(&set_id).copied().unwrap_or(0);
+        let desired = if count >= 4 {
+            2
+        } else if count >= 2 {
+            1
+        } else {
+            0
+        };
+        let current = state.set_bonus_tiers.get(&set_id).copied().unwrap_or(0);
+        if desired == current {
+            continue;
+        }
+
+        if current > 0 {
+            let deltas = set_bonus_deltas(current, true);
+            apply_stat_deltas(state, deltas, applications);
+        }
+        if desired > 0 {
+            let deltas = set_bonus_deltas(desired, false);
+            apply_stat_deltas(state, deltas, applications);
+        }
+
+        if desired == 0 {
+            state.set_bonus_tiers.remove(&set_id);
+        } else {
+            state.set_bonus_tiers.insert(set_id.clone(), desired);
+        }
+
+        let name = if desired == 2 {
+            format!("{} Set Bonus (4)", set_id)
+        } else if desired == 1 {
+            format!("{} Set Bonus (2)", set_id)
+        } else {
+            format!("{} Set Bonus", set_id)
+        };
+        let desc = if desired == 2 {
+            "Major set bonus: +2 strength, +2 constitution, +1 agility.".to_string()
+        } else if desired == 1 {
+            "Minor set bonus: +1 strength, +1 constitution.".to_string()
+        } else {
+            "Set bonus inactive.".to_string()
+        };
+        let event = NarrativeEvent::GrantPower {
+            id: format!("set_bonus_{}", set_id.to_lowercase().replace(' ', "_")),
+            name,
+            description: desc,
+        };
+        let outcome = apply_event(state, event.clone());
+        applications.push(EventApplication { event, outcome });
+    }
+}
+
+fn set_bonus_deltas(tier: u32, remove: bool) -> Vec<(&'static str, i32)> {
+    let mult = if remove { -1 } else { 1 };
+    match tier {
+        1 => vec![("strength", 1 * mult), ("constitution", 1 * mult)],
+        2 => vec![("strength", 2 * mult), ("constitution", 2 * mult), ("agility", 1 * mult)],
+        _ => Vec::new(),
+    }
+}
+
+fn maybe_evolve_powers(
+    state: &mut InternalGameState,
+    world: &crate::ui::app::WorldDefinition,
+    applications: &mut Vec<EventApplication>,
+) {
+    if state.powers.is_empty() {
+        return;
+    }
+    let base_threshold = world.power_evolution_base.max(1);
+    let step = world.power_evolution_step.max(1);
+    let min_mult = world.power_evolution_multiplier_min.max(1.0);
+    let max_mult = world
+        .power_evolution_multiplier_max
+        .max(min_mult);
+    let mut rng = rand::thread_rng();
+
+    for (id, power) in state.powers.clone() {
+        let uses = state.power_usage_counts.get(&id).copied().unwrap_or(0);
+        if uses < base_threshold {
+            continue;
+        }
+        let tiers = 1 + (uses.saturating_sub(base_threshold)) / step;
+        let capped_tier = tiers.min(5);
+        let current = state.power_evolution_tiers.get(&id).copied().unwrap_or(0);
+        if capped_tier <= current {
+            continue;
+        }
+        let multiplier: f32 = rng.gen_range(min_mult..=max_mult);
+        state.power_evolution_tiers.insert(id.clone(), capped_tier);
+
+        let evolved_name = format!("Evolved {}", power.name);
+        let evolved_desc = format!(
+            "{}\nEvolution tier {}. Multiplier x{:.2}.",
+            power.description, capped_tier, multiplier
+        );
+
+        let event = NarrativeEvent::GrantPower {
+            id: id.clone(),
+            name: evolved_name,
+            description: evolved_desc,
+        };
+        let outcome = apply_event(state, event.clone());
+        applications.push(EventApplication { event, outcome });
+    }
+}
+
+fn maybe_grant_repetition_power(
+    state: &mut InternalGameState,
+    input: &str,
+    world: &crate::ui::app::WorldDefinition,
+    applications: &mut Vec<EventApplication>,
+) {
+    let text = input.to_lowercase();
+    let candidates = [
+        (
+            "jumping",
+            ["jump", "jumps", "jumping", "leap", "hop"],
+            "skill_jumping",
+            "Jumping Skill",
+            "Improves jumping efficiency and control from repeated practice.",
+        ),
+        (
+            "mining",
+            ["mine", "mines", "mining", "pickaxe", "ore"],
+            "skill_mining",
+            "Mining Skill",
+            "Improves mining yield and stamina from repeated practice.",
+        ),
+        (
+            "fishing",
+            ["fish", "fishing", "cast line", "reel"],
+            "skill_fishing",
+            "Fishing Skill",
+            "Improves fishing success and patience from repeated practice.",
+        ),
+        (
+            "woodcutting",
+            ["chop", "chopping", "woodcut", "lumber", "axe"],
+            "skill_woodcutting",
+            "Woodcutting Skill",
+            "Improves woodcutting efficiency from repeated practice.",
+        ),
+        (
+            "crafting",
+            ["craft", "crafting", "forge", "smith", "smithing"],
+            "skill_crafting",
+            "Crafting Skill",
+            "Improves crafting outcomes from repeated practice.",
+        ),
+        (
+            "stealth",
+            ["sneak", "sneaking", "stealth", "hide", "hidden"],
+            "skill_stealth",
+            "Stealth Skill",
+            "Improves stealth and movement control from repeated practice.",
+        ),
+    ];
+
+    let base_default = world.repetition_threshold.max(1);
+    let step_default = world.repetition_tier_step.max(1);
+
+    for (action_key, keywords, power_id, power_name, power_desc) in candidates {
+        if !keywords.iter().any(|k| text.contains(k)) {
+            continue;
+        }
+        let count = state.action_counts.get(action_key).copied().unwrap_or(0);
+        let (base, step) = skill_threshold_for(world, action_key, base_default, step_default);
+        let tier = repetition_tier(count, base, step);
+        if tier == 0 {
+            continue;
+        }
+        let capped_tier = tier.min(5);
+        if let Some(existing) = state.powers.get(power_id) {
+            let names = skill_tier_names_for(world, action_key);
+            let current = current_tier_from_name(&existing.name, &names);
+            if current >= capped_tier {
+                continue;
+            }
+        }
+        let tier_name = tier_name_for(world, capped_tier);
+        let upgraded_name = format!("{} {}", tier_name, power_name);
+        let upgraded_desc = format!("Tier {}. {}", capped_tier, power_desc);
+
+        let event = NarrativeEvent::GrantPower {
+            id: power_id.to_string(),
+            name: upgraded_name,
+            description: upgraded_desc,
+        };
+        let outcome = apply_event(state, event.clone());
+        applications.push(EventApplication { event, outcome });
+    }
+}
+
+fn repetition_tier(count: u32, base: u32, step: u32) -> u32 {
+    if count < base {
+        return 0;
+    }
+    let step = step.max(1);
+    1 + (count - base) / step
+}
+
+fn current_tier_from_name(name: &str, tier_names: &[String; 5]) -> u32 {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    let Some((prefix, _)) = trimmed.split_once(' ') else {
+        return 0;
+    };
+    for (idx, tier) in tier_names.iter().enumerate() {
+        if prefix.eq_ignore_ascii_case(tier.trim()) {
+            return (idx + 1) as u32;
+        }
+    }
+    0
+}
+
+fn tier_name_for(world: &crate::ui::app::WorldDefinition, tier: u32) -> String {
+    let mut names = world.skill_tier_names.clone();
+    ensure_tier_names(&mut names);
+    let idx = (tier.saturating_sub(1) as usize).min(4);
+    names[idx].clone()
+}
+
+fn ensure_tier_names(names: &mut Vec<String>) {
+    let defaults = ["Novice", "Adept", "Expert", "Master", "Grandmaster"];
+    if names.len() < 5 {
+        for i in names.len()..5 {
+            names.push(defaults[i].to_string());
+        }
+    } else if names.len() > 5 {
+        names.truncate(5);
+    }
+    for (i, name) in names.iter_mut().enumerate() {
+        if name.trim().is_empty() {
+            *name = defaults[i].to_string();
+        }
+    }
+}
+
+fn skill_threshold_for(
+    world: &crate::ui::app::WorldDefinition,
+    skill: &str,
+    base_default: u32,
+    step_default: u32,
+) -> (u32, u32) {
+    for entry in &world.skill_thresholds {
+        if entry.skill.trim().eq_ignore_ascii_case(skill) {
+            return (entry.base.max(1), entry.step.max(1));
+        }
+    }
+    (base_default, step_default)
+}
+
+fn skill_tier_names_for(
+    world: &crate::ui::app::WorldDefinition,
+    skill: &str,
+) -> [String; 5] {
+    for entry in &world.skill_thresholds {
+        if entry.skill.trim().eq_ignore_ascii_case(skill) {
+            let names = normalized_tier_names(&entry.tier_names);
+            return names;
+        }
+    }
+    normalized_tier_names(&world.skill_tier_names)
+}
 fn validate_start_quest(
     event: &NarrativeEvent,
     offer_source: Option<QuestOfferSource>,

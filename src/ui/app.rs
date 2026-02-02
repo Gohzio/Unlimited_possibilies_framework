@@ -51,6 +51,24 @@ pub struct WorldDefinition {
     pub npc_quests_enabled: bool,
     #[serde(default)]
     pub is_rpg_world: bool,
+    #[serde(default = "default_exp_multiplier")]
+    pub exp_multiplier: f32,
+    #[serde(default = "default_repetition_threshold")]
+    pub repetition_threshold: u32,
+    #[serde(default = "default_repetition_tier_step")]
+    pub repetition_tier_step: u32,
+    #[serde(default = "default_skill_tier_names")]
+    pub skill_tier_names: Vec<String>,
+    #[serde(default)]
+    pub skill_thresholds: Vec<SkillThreshold>,
+    #[serde(default = "default_power_evolution_base")]
+    pub power_evolution_base: u32,
+    #[serde(default = "default_power_evolution_step")]
+    pub power_evolution_step: u32,
+    #[serde(default = "default_power_evolution_multiplier_min")]
+    pub power_evolution_multiplier_min: f32,
+    #[serde(default = "default_power_evolution_multiplier_max")]
+    pub power_evolution_multiplier_max: f32,
 }
 
 impl Default for WorldDefinition {
@@ -79,8 +97,64 @@ impl Default for WorldDefinition {
             world_quests_mandatory: false,
             npc_quests_enabled: false,
             is_rpg_world: false,
+            exp_multiplier: 2.0,
+            repetition_threshold: 5,
+            repetition_tier_step: 5,
+            skill_tier_names: default_skill_tier_names(),
+            skill_thresholds: Vec::new(),
+            power_evolution_base: 10,
+            power_evolution_step: 10,
+            power_evolution_multiplier_min: 1.1,
+            power_evolution_multiplier_max: 3.0,
         }
     }
+}
+
+fn default_exp_multiplier() -> f32 {
+    2.0
+}
+
+fn default_repetition_threshold() -> u32 {
+    5
+}
+
+fn default_repetition_tier_step() -> u32 {
+    5
+}
+
+fn default_skill_tier_names() -> Vec<String> {
+    vec![
+        "Novice".to_string(),
+        "Adept".to_string(),
+        "Expert".to_string(),
+        "Master".to_string(),
+        "Grandmaster".to_string(),
+    ]
+}
+
+fn default_power_evolution_base() -> u32 {
+    10
+}
+
+fn default_power_evolution_step() -> u32 {
+    10
+}
+
+fn default_power_evolution_multiplier_min() -> f32 {
+    1.1
+}
+
+fn default_power_evolution_multiplier_max() -> f32 {
+    3.0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillThreshold {
+    pub skill: String,
+    pub base: u32,
+    pub step: u32,
+    #[serde(default)]
+    pub tier_names: Vec<String>,
 }
 
 /* =========================
@@ -172,6 +246,7 @@ pub enum LeftTab {
     Party,
     Npcs,
     Quests,
+    Factions,
     Slaves,
     Property,
     BondedServants,
@@ -230,6 +305,7 @@ pub struct UiState {
     pub character_image_size: Option<(u32, u32)>,
 
     pub optional_tabs: OptionalTabs,
+    pub base_tabs: BaseTabs,
     pub base_text_sizes: Option<HashMap<egui::TextStyle, f32>>,
 }
 
@@ -274,6 +350,7 @@ impl Default for UiState {
             character_image_size: None,
 
             optional_tabs: OptionalTabs::default(),
+            base_tabs: BaseTabs::default(),
             base_text_sizes: None,
         }
     }
@@ -344,6 +421,25 @@ impl Default for OptionalTabs {
             prisoners: OptionalTabState::default(),
             npcs_on_mission: OptionalTabState::default(),
             bonded_servants_label: "Bonded".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BaseTabs {
+    pub party: bool,
+    pub npcs: bool,
+    pub quests: bool,
+    pub factions: bool,
+}
+
+impl Default for BaseTabs {
+    fn default() -> Self {
+        Self {
+            party: true,
+            npcs: true,
+            quests: true,
+            factions: true,
         }
     }
 }
@@ -541,6 +637,12 @@ impl UiState {
             remove_inventory_entry(&mut self.character.inventory, &stack.id);
             self.character.inventory.push(label);
         }
+
+        if !snapshot.stats.is_empty() {
+            for stat in &snapshot.stats {
+                self.character.stats.insert(stat.id.clone(), stat.value);
+            }
+        }
     }
 
     pub fn sync_party_from_messages(&mut self) {
@@ -671,7 +773,10 @@ impl UiState {
 
     pub fn is_left_tab_visible(&self, tab: LeftTab) -> bool {
         match tab {
-            LeftTab::Party | LeftTab::Npcs | LeftTab::Quests => true,
+            LeftTab::Party => self.base_tabs.party,
+            LeftTab::Npcs => self.base_tabs.npcs,
+            LeftTab::Quests => self.base_tabs.quests,
+            LeftTab::Factions => self.base_tabs.factions,
             LeftTab::Slaves => self.optional_tabs.slaves.unlocked && self.optional_tabs.slaves.enabled,
             LeftTab::Property => self.optional_tabs.property.unlocked && self.optional_tabs.property.enabled,
             LeftTab::BondedServants => {
@@ -696,7 +801,7 @@ impl UiState {
 
     pub fn ensure_left_tab_visible(&mut self) {
         if !self.is_left_tab_visible(self.left_tab) {
-            self.left_tab = LeftTab::Party;
+            self.left_tab = first_visible_left_tab(self);
         }
     }
 
@@ -1310,6 +1415,17 @@ fn draw_options_window(
 
             ui.label(egui::RichText::new(&ui_state.llm_status).color(status_color));
             ui.separator();
+            ui.heading("Left Tabs");
+            let mut tabs_changed = false;
+            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.party, "Party").changed();
+            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.npcs, "NPCs").changed();
+            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.quests, "Quests").changed();
+            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.factions, "Factions").changed();
+            if tabs_changed {
+                ui_state.ensure_left_tab_visible();
+            }
+
+            ui.separator();
             ui.heading("Optional Tabs");
             ui.label("Tabs unlock when the engine sets a flag like: unlock:slaves");
 
@@ -1368,8 +1484,32 @@ fn optional_tabs_status(ui_state: &UiState) -> String {
     if unlocked.is_empty() {
         "none".to_string()
     } else {
-        unlocked.join(", ")
+    unlocked.join(", ")
+}
+
+fn first_visible_left_tab(ui_state: &UiState) -> LeftTab {
+    let ordered = [
+        LeftTab::Party,
+        LeftTab::Npcs,
+        LeftTab::Quests,
+        LeftTab::Factions,
+        LeftTab::Slaves,
+        LeftTab::Property,
+        LeftTab::BondedServants,
+        LeftTab::Concubines,
+        LeftTab::HaremMembers,
+        LeftTab::Prisoners,
+        LeftTab::NpcsOnMission,
+    ];
+
+    for tab in ordered {
+        if ui_state.is_left_tab_visible(tab) {
+            return tab;
+        }
     }
+
+    LeftTab::Party
+}
 }
 
 /* =========================

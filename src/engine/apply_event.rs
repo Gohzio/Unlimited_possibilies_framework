@@ -3,6 +3,42 @@ use crate::model::{
     narrative_event::NarrativeEvent,
 };
 use crate::model::event_result::EventApplyOutcome;
+
+fn apply_exp_gain(state: &mut InternalGameState, amount: i32, multiplier: f32) {
+    let mut exp = (state.player.exp + amount).max(0);
+    let mut next = state.player.exp_to_next.max(1);
+    let mult = multiplier.max(1.0);
+
+    while exp >= next {
+        exp -= next;
+        state.player.level = state.player.level.saturating_add(1);
+        next = ((next as f32) * mult).round() as i32;
+        if next < 1 {
+            next = 1;
+        }
+    }
+
+    state.player.exp = exp;
+    state.player.exp_to_next = next;
+}
+
+fn apply_level_ups(state: &mut InternalGameState, levels: u32, multiplier: f32, reset_exp: bool) {
+    let mut next = state.player.exp_to_next.max(1);
+    let mult = multiplier.max(1.0);
+
+    for _ in 0..levels {
+        state.player.level = state.player.level.saturating_add(1);
+        next = ((next as f32) * mult).round() as i32;
+        if next < 1 {
+            next = 1;
+        }
+    }
+
+    if reset_exp {
+        state.player.exp = 0;
+    }
+    state.player.exp_to_next = next;
+}
 /// Apply a NarrativeEvent to the InternalGameState, returning the outcome
 
 pub fn apply_event(
@@ -11,10 +47,10 @@ pub fn apply_event(
 ) -> EventApplyOutcome {
     match event {
         NarrativeEvent::GrantPower { id, name, description } => {
-            if state.powers.contains_key(&id) {
-                return EventApplyOutcome::Rejected {
-                    reason: format!("Power '{}' already exists", id),
-                };
+            if let Some(existing) = state.powers.get_mut(&id) {
+                existing.name = name;
+                existing.description = description;
+                return EventApplyOutcome::Applied;
             }
 
             state.powers.insert(
@@ -34,6 +70,40 @@ pub fn apply_event(
         | NarrativeEvent::Travel { .. }
         | NarrativeEvent::Rest { .. } => {
             // Narrative-only events: recorded by the LLM but do not mutate state.
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::Craft {
+            recipe,
+            quantity,
+            quality,
+            result,
+            set_id,
+        } => {
+            let item = result.unwrap_or_else(|| recipe.clone());
+            let qty = quantity.unwrap_or(1).max(1);
+            let desc = quality.map(|q| format!("Crafted quality: {}", q));
+            state.loot.push(crate::model::game_state::LootDrop {
+                item,
+                quantity: qty,
+                description: desc,
+                set_id,
+            });
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::Gather {
+            resource,
+            quantity,
+            quality,
+            set_id,
+        } => {
+            let qty = quantity.unwrap_or(1).max(1);
+            let desc = quality.map(|q| format!("Gathered quality: {}", q));
+            state.loot.push(crate::model::game_state::LootDrop {
+                item: resource,
+                quantity: qty,
+                description: desc,
+                set_id,
+            });
             EventApplyOutcome::Applied
         }
 
@@ -245,6 +315,67 @@ pub fn apply_event(
             entry.value += delta;
             EventApplyOutcome::Applied
         }
+        NarrativeEvent::EquipItem {
+            item_id,
+            slot,
+            set_id,
+            description,
+        } => {
+            let key = item_id.clone();
+            let slot_norm = slot.trim().to_lowercase();
+            state.equipment.insert(
+                key.clone(),
+                crate::model::game_state::EquippedItem {
+                    item_id: key.clone(),
+                    slot: slot_norm.clone(),
+                    set_id,
+                    description,
+                },
+            );
+            if let Some(item) = state.inventory.get_mut(&key) {
+                if item.quantity > 1 {
+                    item.quantity -= 1;
+                } else {
+                    state.inventory.remove(&key);
+                }
+            }
+            match slot_norm.as_str() {
+                "weapon" | "weapons" => {
+                    if !state.player.weapons.iter().any(|w| w.eq_ignore_ascii_case(&key)) {
+                        state.player.weapons.push(key);
+                    }
+                }
+                "armor" | "armour" => {
+                    if !state.player.armor.iter().any(|a| a.eq_ignore_ascii_case(&key)) {
+                        state.player.armor.push(key);
+                    }
+                }
+                "clothing" => {
+                    if !state.player.clothing.iter().any(|c| c.eq_ignore_ascii_case(&key)) {
+                        state.player.clothing.push(key);
+                    }
+                }
+                _ => {}
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::UnequipItem { item_id } => {
+            let key = item_id.clone();
+            state.equipment.remove(&key);
+            state.player.weapons.retain(|w| !w.eq_ignore_ascii_case(&key));
+            state.player.armor.retain(|a| !a.eq_ignore_ascii_case(&key));
+            state.player.clothing.retain(|c| !c.eq_ignore_ascii_case(&key));
+            let entry = state.inventory.entry(key).or_insert(
+                crate::model::game_state::ItemStack {
+                    id: item_id,
+                    quantity: 0,
+                    description: None,
+                    set_id: None,
+                },
+            );
+            entry.quantity = entry.quantity.saturating_add(1);
+            EventApplyOutcome::Applied
+        }
 
         NarrativeEvent::ModifyStat { stat_id, delta } => {
             match state.stats.get_mut(&stat_id) {
@@ -257,11 +388,24 @@ pub fn apply_event(
                 },
             }
         }
+        NarrativeEvent::AddExp { amount } => {
+            let mult = state.player.exp_multiplier.max(1.0);
+            apply_exp_gain(state, amount, mult);
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::LevelUp { levels } => {
+            let mult = state.player.exp_multiplier.max(1.0);
+            apply_level_ups(state, levels, mult, false);
+            EventApplyOutcome::Applied
+        }
 
         NarrativeEvent::StartQuest {
             id,
             title,
             description,
+            difficulty,
+            negotiable,
+            reward_options,
             rewards,
             sub_quests,
             declinable: _,
@@ -278,6 +422,9 @@ pub fn apply_event(
                     title,
                     description,
                     status: crate::model::game_state::QuestStatus::Active,
+                    difficulty,
+                    negotiable: negotiable.unwrap_or(false),
+                    reward_options: reward_options.unwrap_or_default(),
                     rewards: rewards.unwrap_or_default(),
                     sub_quests: sub_quests.unwrap_or_default(),
                     rewards_claimed: false,
@@ -290,6 +437,9 @@ pub fn apply_event(
             title,
             description,
             status,
+            difficulty,
+            negotiable,
+            reward_options,
             rewards,
             sub_quests,
         } => {
@@ -311,6 +461,18 @@ pub fn apply_event(
             }
             if let Some(status) = status {
                 quest.status = status;
+            }
+            if let Some(diff) = difficulty {
+                let trimmed = diff.trim();
+                if !trimmed.is_empty() {
+                    quest.difficulty = Some(trimmed.to_string());
+                }
+            }
+            if let Some(neg) = negotiable {
+                quest.negotiable = neg;
+            }
+            if let Some(options) = reward_options {
+                quest.reward_options = options;
             }
             if let Some(rewards) = rewards {
                 quest.rewards = rewards;
@@ -363,34 +525,40 @@ pub fn apply_event(
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::AddItem { item_id, quantity } => {
+        NarrativeEvent::AddItem { item_id, quantity, set_id } => {
             let entry = state.inventory.entry(item_id.clone()).or_insert(
                 crate::model::game_state::ItemStack {
                     id: item_id.clone(),
                     quantity: 0,
                     description: None,
+                    set_id,
                 },
             );
             entry.quantity = entry.quantity.saturating_add(quantity);
+            if entry.set_id.is_none() {
+                entry.set_id = set_id;
+            }
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::Drop { item, quantity, description } => {
+        NarrativeEvent::Drop { item, quantity, description, set_id } => {
             let qty = quantity.unwrap_or(1).max(1) as u32;
             state.loot.push(crate::model::game_state::LootDrop {
                 item,
                 quantity: qty,
                 description,
+                set_id,
             });
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::SpawnLoot { item, quantity, description } => {
+        NarrativeEvent::SpawnLoot { item, quantity, description, set_id } => {
             let qty = quantity.unwrap_or(1).max(1) as u32;
             state.loot.push(crate::model::game_state::LootDrop {
                 item,
                 quantity: qty,
                 description,
+                set_id,
             });
             EventApplyOutcome::Applied
         }
@@ -398,6 +566,73 @@ pub fn apply_event(
         NarrativeEvent::CurrencyChange { currency, delta } => {
             let entry = state.currencies.entry(currency).or_insert(0);
             *entry += delta;
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::FactionSpawn {
+            id,
+            name,
+            kind,
+            description,
+        } => {
+            if state.factions.contains_key(&id) {
+                return EventApplyOutcome::Rejected {
+                    reason: format!("Faction '{}' already exists", id),
+                };
+            }
+            state.factions.insert(
+                id.clone(),
+                crate::model::game_state::FactionRep {
+                    id,
+                    name,
+                    kind,
+                    description,
+                    reputation: 0,
+                },
+            );
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::FactionUpdate {
+            id,
+            name,
+            kind,
+            description,
+        } => {
+            let Some(faction) = state.factions.get_mut(&id) else {
+                return EventApplyOutcome::Deferred {
+                    reason: format!("Faction '{}' not found", id),
+                };
+            };
+            if let Some(name) = name {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    faction.name = trimmed.to_string();
+                }
+            }
+            if let Some(kind) = kind {
+                let trimmed = kind.trim();
+                if !trimmed.is_empty() {
+                    faction.kind = Some(trimmed.to_string());
+                }
+            }
+            if let Some(description) = description {
+                let trimmed = description.trim();
+                if !trimmed.is_empty() {
+                    faction.description = Some(trimmed.to_string());
+                }
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::FactionRepChange { id, delta } => {
+            let entry = state.factions.entry(id.clone()).or_insert(
+                crate::model::game_state::FactionRep {
+                    id,
+                    name: "Unknown Faction".to_string(),
+                    kind: None,
+                    description: None,
+                    reputation: 0,
+                },
+            );
+            entry.reputation += delta;
             EventApplyOutcome::Applied
         }
 
@@ -428,7 +663,8 @@ fn apply_quest_rewards(state: &mut InternalGameState, rewards: &[String]) {
             continue;
         }
 
-        let (item, quantity) = split_quantity_suffix(reward);
+        let (item_raw, quantity) = split_quantity_suffix(reward);
+        let (item, set_id) = extract_set_id(&item_raw);
         if item.trim().is_empty() {
             continue;
         }
@@ -466,9 +702,13 @@ fn apply_quest_rewards(state: &mut InternalGameState, rewards: &[String]) {
                     id: item.trim().to_string(),
                     quantity: 0,
                     description: None,
+                    set_id: None,
                 },
             );
             entry.quantity = entry.quantity.saturating_add(quantity.max(1));
+            if entry.set_id.is_none() {
+                entry.set_id = set_id;
+            }
         }
     }
 }
@@ -499,6 +739,43 @@ fn split_quantity_suffix(reward: &str) -> (String, u32) {
         }
     }
     (reward.to_string(), 1)
+}
+
+fn extract_set_id(raw: &str) -> (String, Option<String>) {
+    let mut item = raw.to_string();
+    let mut set_id: Option<String> = None;
+
+    if let Some((before, rest)) = raw.split_once("(set:") {
+        if let Some((set, after)) = rest.split_once(')') {
+            set_id = Some(set.trim().to_string());
+            item = format!("{}{}", before, after).trim().to_string();
+        }
+    } else if let Some((before, rest)) = raw.split_once("[set:") {
+        if let Some((set, after)) = rest.split_once(']') {
+            set_id = Some(set.trim().to_string());
+            item = format!("{}{}", before, after).trim().to_string();
+        }
+    }
+
+    (item, set_id)
+}
+
+fn upsert_equipment(
+    state: &mut InternalGameState,
+    item_id: &str,
+    slot: &str,
+    set_id: Option<String>,
+    description: Option<String>,
+) {
+    state.equipment.insert(
+        item_id.to_string(),
+        crate::model::game_state::EquippedItem {
+            item_id: item_id.to_string(),
+            slot: slot.to_string(),
+            set_id,
+            description,
+        },
+    );
 }
 
 fn looks_like_clothing(item: &str) -> bool {

@@ -25,6 +25,9 @@ pub fn draw_left_panel(
                 if ui_state.is_left_tab_visible(LeftTab::Quests) {
                     ui.selectable_value(&mut ui_state.left_tab, LeftTab::Quests, "Quests");
                 }
+                if ui_state.is_left_tab_visible(LeftTab::Factions) {
+                    ui.selectable_value(&mut ui_state.left_tab, LeftTab::Factions, "Factions");
+                }
                 if ui_state.is_left_tab_visible(LeftTab::Slaves) {
                     ui.selectable_value(&mut ui_state.left_tab, LeftTab::Slaves, "Slaves");
                 }
@@ -59,6 +62,7 @@ pub fn draw_left_panel(
                 LeftTab::Party => draw_party(ui, ui_state),
                 LeftTab::Npcs => draw_local_npcs(ui, ui_state, cmd_tx),
                 LeftTab::Quests => draw_quests(ui, ui_state),
+                LeftTab::Factions => draw_factions(ui, ui_state),
                 LeftTab::Slaves => draw_placeholder(ui, "Slaves", "No slaves tracked yet."),
                 LeftTab::Property => draw_placeholder(ui, "Property", "No property tracked yet."),
                 LeftTab::BondedServants => {
@@ -264,6 +268,21 @@ fn draw_quests(ui: &mut egui::Ui, state: &UiState) {
             if !quest.description.trim().is_empty() {
                 ui.add(egui::Label::new(&quest.description).wrap());
             }
+            if let Some(diff) = &quest.difficulty {
+                let trimmed = diff.trim();
+                if !trimmed.is_empty() {
+                    ui.add(egui::Label::new(format!("Difficulty: {}", trimmed)).wrap());
+                }
+            }
+            if quest.negotiable {
+                ui.add(egui::Label::new("Negotiable rewards: yes").wrap());
+            }
+            if !quest.reward_options.is_empty() {
+                ui.add(egui::Label::new("Reward options:").wrap());
+                for opt in &quest.reward_options {
+                    ui.add(egui::Label::new(format!("- {}", opt)).wrap());
+                }
+            }
 
             if !quest.rewards.is_empty() {
                 ui.add(egui::Label::new("Rewards:").wrap());
@@ -284,6 +303,39 @@ fn draw_quests(ui: &mut egui::Ui, state: &UiState) {
             }
         });
 
+        ui.add_space(6.0);
+    }
+}
+
+fn draw_factions(ui: &mut egui::Ui, state: &UiState) {
+    ui.heading("Factions");
+    ui.set_width(ui.available_width());
+
+    let Some(snapshot) = &state.snapshot else {
+        ui.label("No factions yet.");
+        return;
+    };
+
+    if snapshot.factions.is_empty() {
+        ui.label("No factions yet.");
+        return;
+    }
+
+    let mut factions = snapshot.factions.clone();
+    factions.sort_by(|a, b| a.name.cmp(&b.name));
+
+    for faction in factions {
+        ui.group(|ui| {
+            let kind = faction.kind.as_deref().unwrap_or("unknown");
+            ui.label(format!("{} ({})", faction.name, kind));
+            ui.label(format!("Reputation: {}", faction.reputation));
+            if let Some(desc) = &faction.description {
+                let trimmed = desc.trim();
+                if !trimmed.is_empty() {
+                    ui.add(egui::Label::new(trimmed).wrap());
+                }
+            }
+        });
         ui.add_space(6.0);
     }
 }

@@ -12,6 +12,8 @@ use crate::model::game_state::{
     CurrencyBalance,
     Npc,
     Relationship,
+    EquippedItem,
+    FactionRep,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -32,8 +34,18 @@ pub struct InternalGameState {
     pub currencies: HashMap<String, i32>,
     pub npcs: HashMap<String, Npc>,
     pub relationships: HashMap<String, Relationship>,
+    pub equipment: HashMap<String, EquippedItem>,
+    pub factions: HashMap<String, FactionRep>,
 
     pub flags: HashSet<String>,
+    #[serde(default)]
+    pub action_counts: HashMap<String, u32>,
+    #[serde(default)]
+    pub power_usage_counts: HashMap<String, u32>,
+    #[serde(default)]
+    pub power_evolution_tiers: HashMap<String, u32>,
+    #[serde(default)]
+    pub set_bonus_tiers: HashMap<String, u32>,
 }
 
 impl From<&InternalGameState> for GameStateSnapshot {
@@ -49,6 +61,7 @@ impl From<&InternalGameState> for GameStateSnapshot {
                 })
                 .collect(),
             powers: state.powers.values().cloned().collect(),
+            equipment: state.equipment.values().cloned().collect(),
             party: state.party.values().cloned().collect(),
             quests: state.quests.values().cloned().collect(),
             inventory: state.inventory.values().cloned().collect(),
@@ -62,6 +75,7 @@ impl From<&InternalGameState> for GameStateSnapshot {
                 .collect(),
             npcs: state.npcs.values().cloned().collect(),
             relationships: state.relationships.values().cloned().collect(),
+            factions: state.factions.values().cloned().collect(),
             flags: state.flags.iter().cloned().collect(),
         }
     }
@@ -73,6 +87,9 @@ impl Default for InternalGameState {
         stats.insert("strength".into(), 10);
         stats.insert("dexterity".into(), 10);
         stats.insert("intelligence".into(), 10);
+        stats.insert("constitution".into(), 10);
+        stats.insert("agility".into(), 10);
+        stats.insert("luck".into(), 10);
 
         Self {
             version: 1,
@@ -80,6 +97,9 @@ impl Default for InternalGameState {
             player: PlayerState {
                 name: "Player".to_string(),
                 level: 1,
+                exp: 0,
+                exp_to_next: 100,
+                exp_multiplier: 2.0,
                 hp: 100,
                 max_hp: 100,
                 weapons: Vec::new(),
@@ -97,8 +117,14 @@ impl Default for InternalGameState {
             currencies: HashMap::new(),
             npcs: HashMap::new(),
             relationships: HashMap::new(),
+            equipment: HashMap::new(),
+            factions: HashMap::new(),
 
             flags: HashSet::new(),
+            action_counts: HashMap::new(),
+            power_usage_counts: HashMap::new(),
+            power_evolution_tiers: HashMap::new(),
+            set_bonus_tiers: HashMap::new(),
         }
     }
 }
