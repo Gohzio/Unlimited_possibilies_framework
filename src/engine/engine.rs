@@ -1216,14 +1216,27 @@ fn player_accepts_quest(input: &str) -> bool {
 
 fn update_action_counts(state: &mut InternalGameState, input: &str) {
     let text = input.to_lowercase();
-    let actions = [
-        ("jumping", ["jump", "jumps", "jumping", "leap", "hop"]),
-        ("mining", ["mine", "mines", "mining", "pickaxe", "ore"]),
-        ("fishing", ["fish", "fishing", "cast line", "reel"]),
-        ("woodcutting", ["chop", "chopping", "woodcut", "lumber", "axe"]),
-        ("crafting", ["craft", "crafting", "forge", "smith", "smithing"]),
-        ("stealth", ["sneak", "sneaking", "stealth", "hide", "hidden"]),
-        ("being_hit", ["i'm hit", "i am hit", "hit me", "hits me", "struck", "wounded", "hurt", "took damage", "i take damage"]),
+    let actions: [(&str, &[&str]); 7] = [
+        ("jumping", &["jump", "jumps", "jumping", "leap", "hop"]),
+        ("mining", &["mine", "mines", "mining", "pickaxe", "ore"]),
+        ("fishing", &["fish", "fishing", "cast line", "reel"]),
+        ("woodcutting", &["chop", "chopping", "woodcut", "lumber", "axe"]),
+        ("crafting", &["craft", "crafting", "forge", "smith", "smithing"]),
+        ("stealth", &["sneak", "sneaking", "stealth", "hide", "hidden"]),
+        (
+            "being_hit",
+            &[
+                "i'm hit",
+                "i am hit",
+                "hit me",
+                "hits me",
+                "struck",
+                "wounded",
+                "hurt",
+                "took damage",
+                "i take damage",
+            ],
+        ),
     ];
 
     for (action, keywords) in actions {
@@ -1252,7 +1265,6 @@ fn apply_level_stat_growth(
     }
 
     let class = context.player.class.to_lowercase();
-    let action_counts = &state.action_counts;
     let threshold = context.world.repetition_threshold.max(1);
 
     for _ in 0..gained {
@@ -1279,25 +1291,33 @@ fn apply_level_stat_growth(
             deltas.push(("constitution", 1));
         }
 
-        if action_counts.get("being_hit").copied().unwrap_or(0) >= threshold {
+        let being_hit = state.action_counts.get("being_hit").copied().unwrap_or(0);
+        let mining = state.action_counts.get("mining").copied().unwrap_or(0);
+        let woodcutting = state.action_counts.get("woodcutting").copied().unwrap_or(0);
+        let jumping = state.action_counts.get("jumping").copied().unwrap_or(0);
+        let stealth = state.action_counts.get("stealth").copied().unwrap_or(0);
+        let crafting = state.action_counts.get("crafting").copied().unwrap_or(0);
+        let fishing = state.action_counts.get("fishing").copied().unwrap_or(0);
+
+        if being_hit >= threshold {
             deltas.push(("constitution", 2));
         }
-        if action_counts.get("mining").copied().unwrap_or(0) >= threshold {
+        if mining >= threshold {
             deltas.push(("strength", 1));
         }
-        if action_counts.get("woodcutting").copied().unwrap_or(0) >= threshold {
+        if woodcutting >= threshold {
             deltas.push(("strength", 1));
         }
-        if action_counts.get("jumping").copied().unwrap_or(0) >= threshold {
+        if jumping >= threshold {
             deltas.push(("agility", 1));
         }
-        if action_counts.get("stealth").copied().unwrap_or(0) >= threshold {
+        if stealth >= threshold {
             deltas.push(("agility", 1));
         }
-        if action_counts.get("crafting").copied().unwrap_or(0) >= threshold {
+        if crafting >= threshold {
             deltas.push(("intelligence", 1));
         }
-        if action_counts.get("fishing").copied().unwrap_or(0) >= threshold {
+        if fishing >= threshold {
             deltas.push(("luck", 1));
         }
 
@@ -1472,45 +1492,45 @@ fn maybe_grant_repetition_power(
     applications: &mut Vec<EventApplication>,
 ) {
     let text = input.to_lowercase();
-    let candidates = [
+    let candidates: [(&str, &[&str], &str, &str, &str); 6] = [
         (
             "jumping",
-            ["jump", "jumps", "jumping", "leap", "hop"],
+            &["jump", "jumps", "jumping", "leap", "hop"],
             "skill_jumping",
             "Jumping Skill",
             "Improves jumping efficiency and control from repeated practice.",
         ),
         (
             "mining",
-            ["mine", "mines", "mining", "pickaxe", "ore"],
+            &["mine", "mines", "mining", "pickaxe", "ore"],
             "skill_mining",
             "Mining Skill",
             "Improves mining yield and stamina from repeated practice.",
         ),
         (
             "fishing",
-            ["fish", "fishing", "cast line", "reel"],
+            &["fish", "fishing", "cast line", "reel"],
             "skill_fishing",
             "Fishing Skill",
             "Improves fishing success and patience from repeated practice.",
         ),
         (
             "woodcutting",
-            ["chop", "chopping", "woodcut", "lumber", "axe"],
+            &["chop", "chopping", "woodcut", "lumber", "axe"],
             "skill_woodcutting",
             "Woodcutting Skill",
             "Improves woodcutting efficiency from repeated practice.",
         ),
         (
             "crafting",
-            ["craft", "crafting", "forge", "smith", "smithing"],
+            &["craft", "crafting", "forge", "smith", "smithing"],
             "skill_crafting",
             "Crafting Skill",
             "Improves crafting outcomes from repeated practice.",
         ),
         (
             "stealth",
-            ["sneak", "sneaking", "stealth", "hide", "hidden"],
+            &["sneak", "sneaking", "stealth", "hide", "hidden"],
             "skill_stealth",
             "Stealth Skill",
             "Improves stealth and movement control from repeated practice.",

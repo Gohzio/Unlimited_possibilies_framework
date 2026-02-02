@@ -526,12 +526,13 @@ pub fn apply_event(
         }
 
         NarrativeEvent::AddItem { item_id, quantity, set_id } => {
+            let set_id_clone = set_id.clone();
             let entry = state.inventory.entry(item_id.clone()).or_insert(
                 crate::model::game_state::ItemStack {
                     id: item_id.clone(),
                     quantity: 0,
                     description: None,
-                    set_id,
+                    set_id: set_id_clone,
                 },
             );
             entry.quantity = entry.quantity.saturating_add(quantity);

@@ -1484,7 +1484,8 @@ fn optional_tabs_status(ui_state: &UiState) -> String {
     if unlocked.is_empty() {
         "none".to_string()
     } else {
-    unlocked.join(", ")
+        unlocked.join(", ")
+    }
 }
 
 fn first_visible_left_tab(ui_state: &UiState) -> LeftTab {
@@ -1509,7 +1510,6 @@ fn first_visible_left_tab(ui_state: &UiState) -> LeftTab {
     }
 
     LeftTab::Party
-}
 }
 
 /* =========================
