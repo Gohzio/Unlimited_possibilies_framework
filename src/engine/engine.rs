@@ -1,4 +1,5 @@
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::Instant;
 
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
@@ -25,6 +26,7 @@ pub struct Engine {
 
     messages: Vec<Message>,
     game_state: InternalGameState,
+    timing_enabled: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -43,6 +45,7 @@ impl Engine {
             tx,
             messages: Vec::new(),
             game_state: InternalGameState::default(),
+            timing_enabled: true,
         }
     }
 
@@ -74,6 +77,7 @@ pub fn run(&mut self) {
                Player input → Prompt → LLM
                ========================= */
             EngineCommand::SubmitPlayerInput { text, context, llm } => {
+                let total_start = Instant::now();
                 self.game_state.player.exp_multiplier = context.world.exp_multiplier.max(1.0);
                 sync_stats_from_context(&mut self.game_state, &context);
                 update_action_counts(&mut self.game_state, &text);
@@ -163,6 +167,7 @@ pub fn run(&mut self) {
                     llm_output
                         .split_once("EVENTS:")
                         .unwrap_or((&llm_output, "[]"));
+                let split_done = Instant::now();
 
                 // 5. Decode EVENTS JSON
                 let events = match crate::model::llm_decode::decode_llm_events(events_json) {
@@ -175,9 +180,11 @@ pub fn run(&mut self) {
                         Vec::new()
                     }
                 };
+                let parse_done = Instant::now();
 
                 // 6. Handle request_context (one additional round)
                 if let Some(topics) = collect_requested_topics(&events) {
+                    let followup_start = Instant::now();
                     let requested_context = build_requested_context(
                         &self.game_state,
                         &context,
@@ -208,6 +215,7 @@ pub fn run(&mut self) {
                         llm_output
                             .split_once("EVENTS:")
                             .unwrap_or((&llm_output, "[]"));
+                    let followup_split_done = Instant::now();
                     let events = match crate::model::llm_decode::decode_llm_events(events_json) {
                         Ok(events) => events,
                         Err(err) => {
@@ -218,6 +226,7 @@ pub fn run(&mut self) {
                             Vec::new()
                         }
                     };
+                    let followup_parse_done = Instant::now();
 
                     let start_level = self.game_state.player.level;
                     if events.iter().any(|e| matches!(e, NarrativeEvent::RequestContext { .. })) {
@@ -233,6 +242,7 @@ pub fn run(&mut self) {
 
                     let new_messages = parse_narrative(narrative);
                     self.messages.extend(new_messages);
+                    let narrative_done = Instant::now();
 
                     let mut applications = Vec::new();
                     let offer_source = quest_offer_source(narrative);
@@ -285,12 +295,35 @@ pub fn run(&mut self) {
                         start_level,
                         &mut applications,
                     );
+                    let apply_done = Instant::now();
 
                     if !applications.is_empty() {
                         let report = NarrativeApplyReport { applications };
                         let snapshot = (&self.game_state).into();
                         let _ = self.tx.send(
                             EngineResponse::NarrativeApplied { report, snapshot }
+                        );
+                        let snapshot_done = Instant::now();
+                        self.emit_timing(
+                            "followup",
+                            total_start,
+                            split_done,
+                            parse_done,
+                            narrative_done,
+                            apply_done,
+                            snapshot_done,
+                            Some((followup_start, followup_split_done, followup_parse_done)),
+                        );
+                    } else {
+                        self.emit_timing(
+                            "followup",
+                            total_start,
+                            split_done,
+                            parse_done,
+                            narrative_done,
+                            apply_done,
+                            Instant::now(),
+                            Some((followup_start, followup_split_done, followup_parse_done)),
                         );
                     }
 
@@ -303,6 +336,7 @@ pub fn run(&mut self) {
                 // 7. Parse narrative into structured messages
                 let new_messages = parse_narrative(narrative);
                 self.messages.extend(new_messages);
+                let narrative_done = Instant::now();
 
                 // 8. Apply events
                 let mut applications = Vec::new();
@@ -361,6 +395,7 @@ pub fn run(&mut self) {
                     start_level,
                     &mut applications,
                 );
+                let apply_done = Instant::now();
 
                 // 9. Send state mutation report
                 if !applications.is_empty() {
@@ -372,6 +407,28 @@ pub fn run(&mut self) {
                             report,
                             snapshot,
                         }
+                    );
+                    let snapshot_done = Instant::now();
+                    self.emit_timing(
+                        "primary",
+                        total_start,
+                        split_done,
+                        parse_done,
+                        narrative_done,
+                        apply_done,
+                        snapshot_done,
+                        None,
+                    );
+                } else {
+                    self.emit_timing(
+                        "primary",
+                        total_start,
+                        split_done,
+                        parse_done,
+                        narrative_done,
+                        apply_done,
+                        Instant::now(),
+                        None,
                     );
                 }
 
@@ -500,7 +557,48 @@ pub fn run(&mut self) {
 
         }
     }
-}
+    }
+
+    fn emit_timing(
+        &mut self,
+    tag: &str,
+    total_start: Instant,
+    split_done: Instant,
+    parse_done: Instant,
+    narrative_done: Instant,
+    apply_done: Instant,
+    snapshot_done: Instant,
+    followup: Option<(Instant, Instant, Instant)>,
+    ) {
+        if !self.timing_enabled {
+            return;
+        }
+
+        let total_ms = total_start.elapsed().as_millis();
+        let split_ms = split_done.duration_since(total_start).as_millis();
+        let parse_ms = parse_done.duration_since(split_done).as_millis();
+        let narrative_ms = narrative_done.duration_since(parse_done).as_millis();
+        let apply_ms = apply_done.duration_since(narrative_done).as_millis();
+        let snapshot_ms = snapshot_done.duration_since(apply_done).as_millis();
+
+        let mut msg = format!(
+            "[timing:{}] total={}ms split={}ms parse={}ms narrative={}ms apply={}ms snapshot={}ms",
+            tag, total_ms, split_ms, parse_ms, narrative_ms, apply_ms, snapshot_ms
+        );
+
+        if let Some((followup_start, followup_split_done, followup_parse_done)) = followup {
+            let followup_total = followup_start.elapsed().as_millis();
+            let followup_split = followup_split_done.duration_since(followup_start).as_millis();
+            let followup_parse = followup_parse_done.duration_since(followup_split_done).as_millis();
+            msg.push_str(&format!(
+                " followup_total={}ms followup_split={}ms followup_parse={}ms",
+                followup_total, followup_split, followup_parse
+            ));
+        }
+
+        self.messages.push(Message::System(msg));
+    }
+
 }
 
 fn is_pickup_all_command(text: &str) -> bool {
@@ -1194,9 +1292,36 @@ fn quest_offer_source(narrative: &str) -> Option<QuestOfferSource> {
         return Some(QuestOfferSource::World);
     }
     if n.contains("i hereby offer you a quest") {
+        if n.contains("[npc") {
+            return Some(QuestOfferSource::Npc);
+        }
+        if !looks_like_hostile_offer(&n) {
+            return Some(QuestOfferSource::Npc);
+        }
         return Some(QuestOfferSource::Npc);
     }
     None
+}
+
+fn looks_like_hostile_offer(normalized: &str) -> bool {
+    let hostile = [
+        "attacks",
+        "attack",
+        "lunges",
+        "swings",
+        "strikes",
+        "slashes",
+        "bites",
+        "mauls",
+        "charges",
+        "roars",
+        "hostile",
+        "bloodthirsty",
+        "feral",
+        "enemy",
+        "ambush",
+    ];
+    hostile.iter().any(|k| normalized.contains(k))
 }
 
 fn player_accepts_quest(input: &str) -> bool {
@@ -1681,14 +1806,6 @@ fn validate_start_quest(
     let source = match offer_source {
         Some(source) => source,
         None => {
-            if player_accepts {
-                if world.npc_quests_enabled {
-                    return None;
-                }
-                if world.world_quests_enabled {
-                    return None;
-                }
-            }
             return Some("Quest rejected: missing quest offer phrase.".to_string());
         }
     };
