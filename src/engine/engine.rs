@@ -1189,29 +1189,52 @@ fn move_selected_loot_to_inventory(
 }
 
 fn quest_offer_source(narrative: &str) -> Option<QuestOfferSource> {
-    let n = narrative.to_ascii_lowercase();
-    if n.contains("*ding* the world is offering you a quest.") {
+    let n = normalize_phrase(narrative);
+    if n.contains("the world is offering you a quest") {
         return Some(QuestOfferSource::World);
     }
-    if n.contains("i hereby offer you a quest.") {
+    if n.contains("i hereby offer you a quest") {
         return Some(QuestOfferSource::Npc);
     }
     None
 }
 
 fn player_accepts_quest(input: &str) -> bool {
-    let t = input.to_ascii_lowercase();
+    let t = normalize_phrase(input);
     let phrases = [
         "i accept",
         "i accept the quest",
         "accept quest",
         "accept the quest",
         "yes i accept",
-        "yes, i accept",
         "i agree",
         "i will do it",
+        "i will take it",
+        "i accept it",
+        "accept it",
+        "i will do this",
+        "sure",
+        "yes",
+        "ok",
+        "okay",
     ];
     phrases.iter().any(|p| t.contains(p))
+}
+
+fn normalize_phrase(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_space = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            last_space = false;
+        } else if !last_space {
+            out.push(' ');
+            last_space = true;
+        }
+    }
+    out.trim().to_string()
 }
 
 fn update_action_counts(state: &mut InternalGameState, input: &str) {
@@ -1658,6 +1681,14 @@ fn validate_start_quest(
     let source = match offer_source {
         Some(source) => source,
         None => {
+            if player_accepts {
+                if world.npc_quests_enabled {
+                    return None;
+                }
+                if world.world_quests_enabled {
+                    return None;
+                }
+            }
             return Some("Quest rejected: missing quest offer phrase.".to_string());
         }
     };

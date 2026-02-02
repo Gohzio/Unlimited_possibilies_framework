@@ -531,52 +531,6 @@ fn push_party_section(prompt: &mut String, context: &GameContext) {
     prompt.push('\n');
 }
 
-fn push_quests_section(prompt: &mut String, context: &GameContext) {
-    if let Some(snapshot) = &context.snapshot {
-        prompt.push_str("QUESTS:\n");
-        if snapshot.quests.is_empty() {
-            prompt.push_str("None\n\n");
-        } else {
-            for quest in &snapshot.quests {
-                prompt.push_str(&format!(
-                    "- [{}] {}\n",
-                    quest_status_label(&quest.status),
-                    quest.title
-                ));
-                if let Some(diff) = &quest.difficulty {
-                    let trimmed = diff.trim();
-                    if !trimmed.is_empty() {
-                        prompt.push_str(&format!("  Difficulty: {}\n", trimmed));
-                    }
-                }
-                if !quest.description.trim().is_empty() {
-                    prompt.push_str(&format!(
-                        "  Description: {}\n",
-                        quest.description.trim()
-                    ));
-                }
-                if !quest.rewards.is_empty() {
-                    prompt.push_str("  Rewards:\n");
-                    for reward in &quest.rewards {
-                        prompt.push_str(&format!("  - {}\n", reward));
-                    }
-                }
-                if !quest.sub_quests.is_empty() {
-                    prompt.push_str("  Sub-quests:\n");
-                    for step in &quest.sub_quests {
-                        let status = if step.completed { "done" } else { "open" };
-                        prompt.push_str(&format!(
-                            "  - [{}] {}\n",
-                            status, step.description
-                        ));
-                    }
-                }
-            }
-            prompt.push('\n');
-        }
-    }
-}
-
 fn push_history_section(prompt: &mut String, history: &[Message], label: &str) {
     if history.is_empty() {
         return;
@@ -768,13 +722,5 @@ fn trim_multiplier(value: f32) -> String {
         stripped.to_string()
     } else {
         s
-    }
-}
-
-fn quest_status_label(status: &crate::model::game_state::QuestStatus) -> &'static str {
-    match status {
-        crate::model::game_state::QuestStatus::Active => "active",
-        crate::model::game_state::QuestStatus::Completed => "completed",
-        crate::model::game_state::QuestStatus::Failed => "failed",
     }
 }

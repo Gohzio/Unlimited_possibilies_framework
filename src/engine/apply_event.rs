@@ -761,23 +761,6 @@ fn extract_set_id(raw: &str) -> (String, Option<String>) {
     (item, set_id)
 }
 
-fn upsert_equipment(
-    state: &mut InternalGameState,
-    item_id: &str,
-    slot: &str,
-    set_id: Option<String>,
-    description: Option<String>,
-) {
-    state.equipment.insert(
-        item_id.to_string(),
-        crate::model::game_state::EquippedItem {
-            item_id: item_id.to_string(),
-            slot: slot.to_string(),
-            set_id,
-            description,
-        },
-    );
-}
 
 fn looks_like_clothing(item: &str) -> bool {
     let item = item.to_lowercase();
