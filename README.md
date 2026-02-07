@@ -111,15 +111,6 @@ cargo build --release
 .\target\release\Unlimited_possibilities_framework.exe
 ```
 
-### Optional: Cross-compile Windows from Linux/macOS
-
-```bash
-rustup target add x86_64-pc-windows-msvc
-cargo build --release --target x86_64-pc-windows-msvc
-```
-
----
-
 ## 🧱 Architectural Principles
 
 - **Narrative first, mechanics second**
