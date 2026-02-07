@@ -467,6 +467,134 @@ pub fn apply_event(
             entry.value += delta;
             EventApplyOutcome::Applied
         }
+        NarrativeEvent::SectionCardUpsert {
+            section,
+            id,
+            name,
+            role,
+            status,
+            details,
+            notes,
+            tags,
+            items,
+        } => {
+            let entry = state.sections.entry(section.clone()).or_default();
+            if let Some(card) = entry.iter_mut().find(|c| c.id == id) {
+                if !name.trim().is_empty() {
+                    card.name = name.trim().to_string();
+                }
+                if let Some(role) = role {
+                    let trimmed = role.trim();
+                    if !trimmed.is_empty() {
+                        card.role = trimmed.to_string();
+                    }
+                }
+                if let Some(status) = status {
+                    let trimmed = status.trim();
+                    if !trimmed.is_empty() {
+                        card.status = trimmed.to_string();
+                    }
+                }
+                if let Some(details) = details {
+                    let trimmed = details.trim();
+                    if !trimmed.is_empty() {
+                        card.details = trimmed.to_string();
+                    }
+                }
+                if let Some(notes) = notes {
+                    let trimmed = notes.trim();
+                    if !trimmed.is_empty() {
+                        card.notes = trimmed.to_string();
+                    }
+                }
+                if let Some(tags) = tags {
+                    card.tags = tags.into_iter().filter(|t| !t.trim().is_empty()).collect();
+                }
+                if let Some(items) = items {
+                    card.items = items.into_iter().filter(|t| !t.trim().is_empty()).collect();
+                }
+            } else {
+                entry.push(crate::model::game_state::CardEntry {
+                    id,
+                    name,
+                    role: role.unwrap_or_default(),
+                    status: status.unwrap_or_default(),
+                    details: details.unwrap_or_default(),
+                    notes: notes.unwrap_or_default(),
+                    tags: tags.unwrap_or_default(),
+                    items: items.unwrap_or_default(),
+                });
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::SectionCardRemove { section, id } => {
+            if let Some(list) = state.sections.get_mut(&section) {
+                list.retain(|c| c.id != id);
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::PlayerCardUpdate {
+            name,
+            role,
+            status,
+            details,
+            notes,
+            tags,
+            items,
+        } => {
+            let card = state.player_card.get_or_insert(crate::model::game_state::CardEntry {
+                id: "player".to_string(),
+                name: state.player.name.clone(),
+                role: String::new(),
+                status: String::new(),
+                details: String::new(),
+                notes: String::new(),
+                tags: Vec::new(),
+                items: Vec::new(),
+            });
+            if let Some(name) = name {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() {
+                    card.name = trimmed.to_string();
+                }
+            }
+            if let Some(role) = role {
+                let trimmed = role.trim();
+                if !trimmed.is_empty() {
+                    card.role = trimmed.to_string();
+                }
+            }
+            if let Some(status) = status {
+                let trimmed = status.trim();
+                if !trimmed.is_empty() {
+                    card.status = trimmed.to_string();
+                }
+            }
+            if let Some(details) = details {
+                let trimmed = details.trim();
+                if !trimmed.is_empty() {
+                    card.details = trimmed.to_string();
+                }
+            }
+            if let Some(notes) = notes {
+                let trimmed = notes.trim();
+                if !trimmed.is_empty() {
+                    card.notes = trimmed.to_string();
+                }
+            }
+            if let Some(tags) = tags {
+                card.tags = tags.into_iter().filter(|t| !t.trim().is_empty()).collect();
+            }
+            if let Some(items) = items {
+                card.items = items.into_iter().filter(|t| !t.trim().is_empty()).collect();
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::TimePassed { minutes, reason: _ } => {
+            let add = minutes as u64;
+            state.world_time_minutes = state.world_time_minutes.saturating_add(add);
+            EventApplyOutcome::Applied
+        }
         NarrativeEvent::EquipItem {
             item_id,
             slot,

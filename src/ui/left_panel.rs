@@ -62,20 +62,21 @@ pub fn draw_left_panel(
                 LeftTab::Npcs => draw_local_npcs(ui, ui_state, cmd_tx),
                 LeftTab::Quests => draw_quests(ui, ui_state),
                 LeftTab::Factions => draw_factions(ui, ui_state),
-                LeftTab::Slaves => draw_placeholder(ui, "Slaves", "No slaves tracked yet."),
-                LeftTab::Property => draw_placeholder(ui, "Property", "No property tracked yet."),
+                LeftTab::Slaves => draw_section_cards(ui, ui_state, "slaves", "Slaves"),
+                LeftTab::Property => draw_section_cards(ui, ui_state, "property", "Property"),
                 LeftTab::BondedServants => {
-                    draw_placeholder(ui, "Bonded Servants", "No bonded servants tracked yet.")
+                    let label = bonded_servants_label(ui_state).to_string();
+                    draw_section_cards(ui, ui_state, "bonded_servants", &label)
                 }
                 LeftTab::Concubines => {
-                    draw_placeholder(ui, "Concubines", "No concubines tracked yet.")
+                    draw_section_cards(ui, ui_state, "concubines", "Concubines")
                 }
                 LeftTab::HaremMembers => {
-                    draw_placeholder(ui, "Harem Members", "No harem members tracked yet.")
+                    draw_section_cards(ui, ui_state, "harem_members", "Harem Members")
                 }
-                LeftTab::Prisoners => draw_placeholder(ui, "Prisoners", "No prisoners tracked yet."),
+                LeftTab::Prisoners => draw_section_cards(ui, ui_state, "prisoners", "Prisoners"),
                 LeftTab::NpcsOnMission => {
-                    draw_placeholder(ui, "NPCs on Mission", "No missions tracked yet.")
+                    draw_section_cards(ui, ui_state, "npcs_on_mission", "NPCs on Mission")
                 }
             });
         });
@@ -89,7 +90,14 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
     ui.heading("Party");
 
     if ui.button("➕ Add Member").clicked() {
-        state.party.push(PartyMember::default());
+        let _ = cmd_tx.send(EngineCommand::AddPartyMember {
+            name: "New Member".to_string(),
+            role: "Unknown".to_string(),
+            details: String::new(),
+            weapons: Vec::new(),
+            armor: Vec::new(),
+            clothing: Vec::new(),
+        });
     }
 
     ui.separator();
@@ -101,7 +109,11 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
             ui.horizontal(|ui| {
                 ui.label(format!("Member {}", i + 1));
                 if ui.small_button("❌").clicked() {
-                    remove_index = Some(i);
+                    if let Some(id) = member.id.as_ref() {
+                        let _ = cmd_tx.send(EngineCommand::RemovePartyMember { id: id.clone() });
+                    } else {
+                        remove_index = Some(i);
+                    }
                 }
             });
 
@@ -154,6 +166,20 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
                 }
             });
 
+            if let Some(id) = member.id.as_ref() {
+                if ui.button("Apply changes").clicked() {
+                    let _ = cmd_tx.send(EngineCommand::SetPartyMember {
+                        id: id.clone(),
+                        name: member.name.clone(),
+                        role: member.role.clone(),
+                        details: member.details.clone(),
+                        weapons: member.weapons.clone(),
+                        armor: member.armor.clone(),
+                        clothing: member.clothing.clone(),
+                    });
+                }
+            }
+
             if lock_changed {
                 if let Some(id) = member.id.as_ref() {
                     let _ = cmd_tx.send(EngineCommand::SetPartyMemberLocks {
@@ -165,6 +191,8 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineComm
                         lock_armor: member.lock_armor,
                         lock_clothing: member.lock_clothing,
                     });
+                } else {
+                    state.ui_error = Some("Locks can only be saved after the member exists in the engine.".to_string());
                 }
             }
         });
@@ -379,9 +407,55 @@ fn draw_factions(ui: &mut egui::Ui, state: &UiState) {
     }
 }
 
-fn draw_placeholder(ui: &mut egui::Ui, title: &str, message: &str) {
+fn draw_section_cards(ui: &mut egui::Ui, state: &UiState, section: &str, title: &str) {
     ui.heading(title);
-    ui.label(message);
+    ui.set_width(ui.available_width());
+
+    let Some(snapshot) = &state.snapshot else {
+        ui.label("No data yet.");
+        return;
+    };
+
+    let Some(cards) = snapshot.sections.get(section) else {
+        ui.label("No data yet.");
+        return;
+    };
+
+    if cards.is_empty() {
+        ui.label("No data yet.");
+        return;
+    }
+
+    for card in cards {
+        ui.group(|ui| {
+            ui.label(&card.name);
+            if !card.role.trim().is_empty() {
+                ui.label(format!("Role: {}", card.role.trim()));
+            }
+            if !card.status.trim().is_empty() {
+                ui.label(format!("Status: {}", card.status.trim()));
+            }
+            if !card.details.trim().is_empty() {
+                ui.add(egui::Label::new(card.details.trim()).wrap());
+            }
+            if !card.notes.trim().is_empty() {
+                ui.add(egui::Label::new(format!("Notes: {}", card.notes.trim())).wrap());
+            }
+            if !card.tags.is_empty() {
+                ui.label("Tags:");
+                for tag in &card.tags {
+                    ui.label(format!("- {}", tag));
+                }
+            }
+            if !card.items.is_empty() {
+                ui.label("Items:");
+                for item in &card.items {
+                    ui.label(format!("- {}", item));
+                }
+            }
+        });
+        ui.add_space(6.0);
+    }
 }
 
 fn bonded_servants_label(state: &UiState) -> &str {

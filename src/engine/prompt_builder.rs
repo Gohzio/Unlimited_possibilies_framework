@@ -49,6 +49,7 @@ impl GamePromptBuilder {
         push_world_definition(&mut prompt, context, true);
         push_party_section(&mut prompt, context);
         push_npc_registry(&mut prompt, context);
+        push_time_section(&mut prompt, context);
         push_history_section(&mut prompt, &context.history, "NARRATIVE HISTORY");
         push_current_situation(&mut prompt, context);
         push_player_action(&mut prompt, player_input);
@@ -69,6 +70,7 @@ impl GamePromptBuilder {
         push_world_definition(&mut prompt, context, true);
         push_party_section(&mut prompt, context);
         push_npc_registry(&mut prompt, context);
+        push_time_section(&mut prompt, context);
         push_current_situation(&mut prompt, context);
 
         if !requested_context.trim().is_empty() {
@@ -183,6 +185,10 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - npc_join_party { id?, name?, role?, details?, weapons?, armor?, clothing? }\n\
 - npc_leave_party { id }\n\
 - party_update { id, name?, role?, details?, weapons_add?, weapons_remove?, armor_add?, armor_remove?, clothing_add?, clothing_remove? }\n\
+- section_card_upsert { section, id, name, role?, status?, details?, notes?, tags?, items? }\n\
+- section_card_remove { section, id }\n\
+- player_card_update { name?, role?, status?, details?, notes?, tags?, items? }\n\
+- time_passed { minutes, reason? }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - add_item { item_id, quantity, set_id? }\n\
 - add_exp { amount }\n\
@@ -227,6 +233,14 @@ Event Types (JSON array of objects with a \"type\" field):\n\
     );
 
     prompt.push_str(
+        "Card Tracking (Left Tabs + Player):\n\
+- Use section_card_upsert/section_card_remove for left-tab sections: slaves, property, bonded_servants,\n\
+  concubines, harem_members, prisoners, npcs_on_mission.\n\
+- Use player_card_update for persistent player narrative details not covered by stats.\n\
+- Keep ids stable and snake_case.\n\n"
+    );
+
+    prompt.push_str(
         "Equipment & Sets:\n\
 - Use equip_item/unequip_item to track equipped gear.\n\
 - If an item belongs to a set, include set_id so set bonuses can be tracked.\n\
@@ -260,7 +274,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - You can request location lore with topic \"locations\".\n\
 - Common topics: world, loot_rules, player, stats, powers, features, inventory, weapons, armor, clothing,\n\
   currencies, party, quests, npcs, relationships, flags, locations, exp, level, skills, power_evolution,\n\
-  equipment, factions, reputation, sets, crafting, gathering,\n\
+  equipment, factions, reputation, sets, crafting, gathering, player_card, time,\n\
   slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission.\n\
 - Do NOT add narrative when requesting context.\n\n"
     );
@@ -385,6 +399,10 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - npc_despawn { id, reason? }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - set_flag { flag }\n\
+- section_card_upsert { section, id, name, role?, status?, details?, notes?, tags?, items? }\n\
+- section_card_remove { section, id }\n\
+- player_card_update { name?, role?, status?, details?, notes?, tags?, items? }\n\
+- time_passed { minutes, reason? }\n\
 - request_context { topics }\n\n"
     );
 
@@ -392,7 +410,9 @@ Event Types (JSON array of objects with a \"type\" field):\n\
         "Request Context:\n\
 - If you need more data, emit request_context { topics: [\"topic1\", \"topic2\"] }\n\
 - You can request location lore with topic \"locations\".\n\
-- Common topics: world, player, npcs, relationships, flags, locations, party, inventory.\n\
+- Common topics: world, player, player_card, npcs, relationships, flags, locations, party, inventory,\n\
+  time,\n\
+  slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission.\n\
 - Do NOT add narrative when requesting context.\n\n"
     );
 }
@@ -582,6 +602,22 @@ fn push_npc_registry(prompt: &mut String, context: &GameContext) {
     } else {
         prompt.push_str("None\n\n");
         prompt.push_str("USED NPC NAMES (hidden):\nNone\n\n");
+    }
+}
+
+fn push_time_section(prompt: &mut String, context: &GameContext) {
+    prompt.push_str("WORLD TIME (hidden):\n");
+    if let Some(snapshot) = &context.snapshot {
+        let total_minutes = snapshot.world_time_minutes;
+        let days = total_minutes / (24 * 60);
+        let hours = (total_minutes / 60) % 24;
+        let minutes = total_minutes % 60;
+        prompt.push_str(&format!(
+            "Elapsed time: {} days, {:02}:{:02}\n\n",
+            days, hours, minutes
+        ));
+    } else {
+        prompt.push_str("Unknown\n\n");
     }
 }
 

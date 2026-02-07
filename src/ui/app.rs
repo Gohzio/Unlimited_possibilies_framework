@@ -638,16 +638,23 @@ impl UiState {
         &mut self,
         snapshot: &crate::model::game_state::GameStateSnapshot,
     ) {
+        self.party.clear();
         for member in &snapshot.party {
-            self.upsert_party_member(
-                Some(&member.id),
-                Some(&member.name),
-                Some(&member.role),
-                Some(&member.details),
-                Some(&member.clothing),
-                Some(&member.weapons),
-                Some(&member.armor),
-            );
+            self.party.push(PartyMember {
+                id: Some(member.id.clone()),
+                name: member.name.clone(),
+                role: member.role.clone(),
+                details: member.details.clone(),
+                weapons: member.weapons.clone(),
+                armor: member.armor.clone(),
+                clothing: member.clothing.clone(),
+                lock_name: member.lock_name,
+                lock_role: member.lock_role,
+                lock_details: member.lock_details,
+                lock_weapons: member.lock_weapons,
+                lock_armor: member.lock_armor,
+                lock_clothing: member.lock_clothing,
+            });
         }
     }
 

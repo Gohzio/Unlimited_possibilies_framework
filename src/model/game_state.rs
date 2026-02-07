@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// A full snapshot of the game state sent to LLMs.
 /// This is READ-ONLY outside the engine.
@@ -23,6 +24,12 @@ pub struct GameStateSnapshot {
     pub relationships: Vec<Relationship>,
     #[serde(default)]
     pub factions: Vec<FactionRep>,
+    #[serde(default)]
+    pub sections: HashMap<String, Vec<CardEntry>>,
+    #[serde(default)]
+    pub player_card: Option<CardEntry>,
+    #[serde(default)]
+    pub world_time_minutes: u64,
 
     pub flags: Vec<String>,
 }
@@ -189,6 +196,24 @@ pub struct FactionRep {
     #[serde(default)]
     pub description: Option<String>,
     pub reputation: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardEntry {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub role: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub details: String,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub items: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

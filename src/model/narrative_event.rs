@@ -100,6 +100,48 @@ pub enum NarrativeEvent {
         #[serde(default)]
         armor_remove: Option<Vec<String>>,
     },
+    SectionCardUpsert {
+        section: String,
+        id: String,
+        name: String,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        details: Option<String>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+        #[serde(default)]
+        items: Option<Vec<String>>,
+    },
+    SectionCardRemove {
+        section: String,
+        id: String,
+    },
+    PlayerCardUpdate {
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        role: Option<String>,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        details: Option<String>,
+        #[serde(default)]
+        notes: Option<String>,
+        #[serde(default)]
+        tags: Option<Vec<String>>,
+        #[serde(default)]
+        items: Option<Vec<String>>,
+    },
+    TimePassed {
+        minutes: u32,
+        #[serde(default)]
+        reason: Option<String>,
+    },
     NpcSpawn {
         #[serde(default)]
         id: Option<String>,

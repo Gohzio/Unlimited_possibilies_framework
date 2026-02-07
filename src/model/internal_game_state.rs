@@ -14,6 +14,7 @@ use crate::model::game_state::{
     Relationship,
     EquippedItem,
     FactionRep,
+    CardEntry,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -36,6 +37,9 @@ pub struct InternalGameState {
     pub relationships: HashMap<String, Relationship>,
     pub equipment: HashMap<String, EquippedItem>,
     pub factions: HashMap<String, FactionRep>,
+    pub sections: HashMap<String, Vec<CardEntry>>,
+    pub player_card: Option<CardEntry>,
+    pub world_time_minutes: u64,
 
     pub flags: HashSet<String>,
     #[serde(default)]
@@ -76,6 +80,9 @@ impl From<&InternalGameState> for GameStateSnapshot {
             npcs: state.npcs.values().cloned().collect(),
             relationships: state.relationships.values().cloned().collect(),
             factions: state.factions.values().cloned().collect(),
+            sections: state.sections.clone(),
+            player_card: state.player_card.clone(),
+            world_time_minutes: state.world_time_minutes,
             flags: state.flags.iter().cloned().collect(),
         }
     }
@@ -119,6 +126,9 @@ impl Default for InternalGameState {
             relationships: HashMap::new(),
             equipment: HashMap::new(),
             factions: HashMap::new(),
+            sections: HashMap::new(),
+            player_card: None,
+            world_time_minutes: 0,
 
             flags: HashSet::new(),
             action_counts: HashMap::new(),

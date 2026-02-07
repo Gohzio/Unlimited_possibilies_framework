@@ -482,6 +482,79 @@ pub fn run(&mut self) {
                 );
             }
 
+            EngineCommand::AddPartyMember {
+                name,
+                role,
+                details,
+                weapons,
+                armor,
+                clothing,
+            } => {
+                let id = generate_unique_party_id(&self.game_state, &name);
+                let event = crate::model::narrative_event::NarrativeEvent::AddPartyMember {
+                    id: id.clone(),
+                    name: name.clone(),
+                    role: role.clone(),
+                };
+                let outcome = apply_event(&mut self.game_state, event.clone());
+                if let Some(member) = self.game_state.party.get_mut(&id) {
+                    if !details.trim().is_empty() {
+                        member.details = details.trim().to_string();
+                    }
+                    member.weapons = weapons;
+                    member.armor = armor;
+                    member.clothing = clothing;
+                }
+                let report = NarrativeApplyReport {
+                    applications: vec![EventApplication { event, outcome }],
+                };
+                let snapshot = (&self.game_state).into();
+                let _ = self.tx.send(EngineResponse::NarrativeApplied { report, snapshot });
+            }
+
+            EngineCommand::SetPartyMember {
+                id,
+                name,
+                role,
+                details,
+                weapons,
+                armor,
+                clothing,
+            } => {
+                if let Some(member) = self.game_state.party.get(&id) {
+                    let (weapons_add, weapons_remove) = diff_lists(&member.weapons, &weapons);
+                    let (armor_add, armor_remove) = diff_lists(&member.armor, &armor);
+                    let (clothing_add, clothing_remove) = diff_lists(&member.clothing, &clothing);
+
+                    let event = crate::model::narrative_event::NarrativeEvent::PartyUpdate {
+                        id: id.clone(),
+                        name: Some(name),
+                        role: Some(role),
+                        details: Some(details),
+                        clothing_add: Some(clothing_add),
+                        clothing_remove: Some(clothing_remove),
+                        weapons_add: Some(weapons_add),
+                        weapons_remove: Some(weapons_remove),
+                        armor_add: Some(armor_add),
+                        armor_remove: Some(armor_remove),
+                    };
+                    let outcome = apply_event(&mut self.game_state, event.clone());
+                    let report = NarrativeApplyReport {
+                        applications: vec![EventApplication { event, outcome }],
+                    };
+                    let snapshot = (&self.game_state).into();
+                    let _ = self.tx.send(EngineResponse::NarrativeApplied { report, snapshot });
+                }
+            }
+
+            EngineCommand::RemovePartyMember { id } => {
+                if self.game_state.party.remove(&id).is_some() {
+                    let report = NarrativeApplyReport { applications: Vec::new() };
+                    let snapshot = (&self.game_state).into();
+                    let _ = self.tx.send(EngineResponse::NarrativeApplied { report, snapshot });
+                }
+            }
+
             EngineCommand::SetPartyMemberLocks {
                 id,
                 lock_name,
@@ -804,8 +877,14 @@ fn build_requested_context(
                 push_section(
                     &mut out,
                     "OPTIONAL TAB",
-                    "No structured data tracked for this tab yet.",
+                    &format_section_cards(state, topic),
                 );
+            }
+            "player_card" => {
+                push_section(&mut out, "PLAYER CARD", &format_player_card(state));
+            }
+            "time" | "clock" | "world_time" => {
+                push_section(&mut out, "TIME", &format_time(state));
             }
             _ => {
                 push_section(
@@ -1228,6 +1307,82 @@ fn format_npcs(state: &InternalGameState) -> String {
         s.push_str(&format!("- {} ({}) [{}]\n", npc.name, npc.role, status));
     }
     s
+}
+
+fn format_section_cards(state: &InternalGameState, section: &str) -> String {
+    let Some(cards) = state.sections.get(section) else {
+        return "None\n".to_string();
+    };
+    if cards.is_empty() {
+        return "None\n".to_string();
+    }
+    let mut s = String::new();
+    for card in cards {
+        s.push_str(&format!("- {} ({})\n", card.name, card.role));
+        if !card.status.trim().is_empty() {
+            s.push_str(&format!("  Status: {}\n", card.status.trim()));
+        }
+        if !card.details.trim().is_empty() {
+            s.push_str(&format!("  Details: {}\n", card.details.trim()));
+        }
+        if !card.notes.trim().is_empty() {
+            s.push_str(&format!("  Notes: {}\n", card.notes.trim()));
+        }
+        if !card.tags.is_empty() {
+            s.push_str("  Tags:\n");
+            for tag in &card.tags {
+                s.push_str(&format!("  - {}\n", tag));
+            }
+        }
+        if !card.items.is_empty() {
+            s.push_str("  Items:\n");
+            for item in &card.items {
+                s.push_str(&format!("  - {}\n", item));
+            }
+        }
+    }
+    s
+}
+
+fn format_player_card(state: &InternalGameState) -> String {
+    let Some(card) = state.player_card.as_ref() else {
+        return "None\n".to_string();
+    };
+    let mut s = String::new();
+    s.push_str(&format!("- {} ({})\n", card.name, card.role));
+    if !card.status.trim().is_empty() {
+        s.push_str(&format!("  Status: {}\n", card.status.trim()));
+    }
+    if !card.details.trim().is_empty() {
+        s.push_str(&format!("  Details: {}\n", card.details.trim()));
+    }
+    if !card.notes.trim().is_empty() {
+        s.push_str(&format!("  Notes: {}\n", card.notes.trim()));
+    }
+    if !card.tags.is_empty() {
+        s.push_str("  Tags:\n");
+        for tag in &card.tags {
+            s.push_str(&format!("  - {}\n", tag));
+        }
+    }
+    if !card.items.is_empty() {
+        s.push_str("  Items:\n");
+        for item in &card.items {
+            s.push_str(&format!("  - {}\n", item));
+        }
+    }
+    s
+}
+
+fn format_time(state: &InternalGameState) -> String {
+    let total_minutes = state.world_time_minutes;
+    let days = total_minutes / (24 * 60);
+    let hours = (total_minutes / 60) % 24;
+    let minutes = total_minutes % 60;
+    format!(
+        "Elapsed time: {} days, {:02}:{:02}\n",
+        days, hours, minutes
+    )
 }
 
 fn format_relationships(state: &InternalGameState) -> String {
@@ -1997,6 +2152,53 @@ fn migrate_save(save: &mut GameSave) {
     if save.version < SAVE_VERSION {
         save.version = SAVE_VERSION;
     }
+}
+
+fn generate_unique_party_id(state: &InternalGameState, name: &str) -> String {
+    let mut base = String::new();
+    let mut last_was_underscore = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            base.push(ch.to_ascii_lowercase());
+            last_was_underscore = false;
+        } else if !last_was_underscore {
+            base.push('_');
+            last_was_underscore = true;
+        }
+    }
+    let trimmed = base.trim_matches('_');
+    let base_id = if trimmed.is_empty() {
+        "party_member".to_string()
+    } else {
+        format!("party_{}", trimmed)
+    };
+    if !state.party.contains_key(&base_id) {
+        return base_id;
+    }
+    let mut idx = 2;
+    loop {
+        let candidate = format!("{}_{}", base_id, idx);
+        if !state.party.contains_key(&candidate) {
+            return candidate;
+        }
+        idx += 1;
+    }
+}
+
+fn diff_lists(old_list: &[String], new_list: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut add = Vec::new();
+    let mut remove = Vec::new();
+    for item in new_list {
+        if !old_list.iter().any(|v| v.eq_ignore_ascii_case(item)) {
+            add.push(item.clone());
+        }
+    }
+    for item in old_list {
+        if !new_list.iter().any(|v| v.eq_ignore_ascii_case(item)) {
+            remove.push(item.clone());
+        }
+    }
+    (add, remove)
 }
 
 #[cfg(test)]

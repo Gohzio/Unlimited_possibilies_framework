@@ -32,6 +32,31 @@ pub enum EngineCommand {
         details: String,
     },
 
+    /// UI-driven: add a party member directly
+    AddPartyMember {
+        name: String,
+        role: String,
+        details: String,
+        weapons: Vec<String>,
+        armor: Vec<String>,
+        clothing: Vec<String>,
+    },
+
+    /// UI-driven: overwrite a party member's fields
+    SetPartyMember {
+        id: String,
+        name: String,
+        role: String,
+        details: String,
+        weapons: Vec<String>,
+        armor: Vec<String>,
+        clothing: Vec<String>,
+    },
+    /// UI-driven: remove a party member
+    RemovePartyMember {
+        id: String,
+    },
+
     /// UI-driven: lock party member fields to prevent LLM/engine edits
     SetPartyMemberLocks {
         id: String,
