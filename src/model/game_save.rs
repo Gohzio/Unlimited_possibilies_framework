@@ -14,4 +14,8 @@ pub struct GameSave {
     pub internal_state: InternalGameState,
     #[serde(default)]
     pub speaker_colors: crate::ui::app::SpeakerColors,
+    #[serde(default)]
+    pub character_image_rgba: Option<Vec<u8>>,
+    #[serde(default)]
+    pub character_image_size: Option<(u32, u32)>,
 }

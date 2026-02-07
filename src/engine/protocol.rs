@@ -55,6 +55,8 @@ pub enum EngineCommand {
         party: Vec<crate::ui::app::PartyMember>,
         speaker_colors: crate::ui::app::SpeakerColors,
         save_chat_log: bool,
+        character_image_rgba: Option<Vec<u8>>,
+        character_image_size: Option<(u32, u32)>,
     },
 
     LoadGame {

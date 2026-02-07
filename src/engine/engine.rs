@@ -29,7 +29,7 @@ pub struct Engine {
     timing_enabled: bool,
 }
 
-const SAVE_VERSION: u32 = 3;
+const SAVE_VERSION: u32 = 4;
 
 #[derive(Clone, Copy, Debug)]
 enum QuestOfferSource {
@@ -515,6 +515,8 @@ pub fn run(&mut self) {
                 party,
                 speaker_colors,
                 save_chat_log,
+                character_image_rgba,
+                character_image_size,
             } => {
                 let messages_start = self.messages.len();
                 let save = GameSave {
@@ -525,6 +527,8 @@ pub fn run(&mut self) {
                     messages: self.messages.clone(),
                     internal_state: self.game_state.clone(),
                     speaker_colors,
+                    character_image_rgba,
+                    character_image_size,
                 };
                 let result = serde_json::to_string_pretty(&save)
                     .map_err(|e| e.to_string())

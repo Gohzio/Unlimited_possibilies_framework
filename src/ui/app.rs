@@ -1327,6 +1327,15 @@ impl eframe::App for MyApp {
                     self.ui.party = Vec::new();
                     self.ui.rendered_messages = save.messages;
                     self.ui.speaker_colors = save.speaker_colors;
+                    self.ui.character_image = None;
+                    self.ui.character_image_rgba = None;
+                    self.ui.character_image_size = None;
+                    if let (Some(rgba), Some((width, height))) = (
+                        save.character_image_rgba.clone(),
+                        save.character_image_size,
+                    ) {
+                        self.ui.set_character_image_from_rgba(ctx, width, height, rgba);
+                    }
                     self.ui.snapshot = Some(snapshot.clone());
                     self.ui.apply_chat_log_limit();
                     self.ui.sync_party_from_snapshot(&snapshot);
