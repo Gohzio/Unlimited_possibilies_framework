@@ -48,11 +48,17 @@ git --version
 
 ### Linux
 
-1) Install system deps for egui/eframe (X11/Wayland and OpenGL):
+1) Install system deps for egui/eframe (X11/Wayland and OpenGL). If you already have a working Rust+OpenGL toolchain on your desktop, you can skip this. Otherwise:
 
 Examples:
-- Debian/Ubuntu: `libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config`
-- Fedora: `libX11-devel libxkbcommon-devel wayland-devel mesa-libGL-devel pkgconf`
+- Debian/Ubuntu:
+  ```bash
+  sudo apt install libx11-dev libxkbcommon-dev libwayland-dev libgl1-mesa-dev pkg-config
+  ```
+- Fedora:
+  ```bash
+  sudo dnf install libX11-devel libxkbcommon-devel wayland-devel mesa-libGL-devel pkgconf
+  ```
 
 2) Clone and build:
 
@@ -70,7 +76,7 @@ cargo build --release
 
 ### macOS
 
-1) Install Rust (and Xcode Command Line Tools if prompted).
+1) Install Rust. If prompted, install Xcode Command Line Tools.
 
 2) Clone and build:
 
@@ -88,7 +94,7 @@ cargo build --release
 
 ### Windows
 
-1) Install Rust with the MSVC toolchain.
+1) Install Rust with the MSVC toolchain (`rustup default stable-x86_64-pc-windows-msvc`).
 2) Install the Visual Studio Build Tools (C++ build tools).
 
 3) Clone and build (PowerShell):
@@ -145,4 +151,3 @@ This engine should eventually be able to:
 ---
 
 > “If the LLM surprises the engine, the engine should learn — not panic.”
-
