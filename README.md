@@ -106,6 +106,14 @@ cargo build --release --target x86_64-pc-windows-msvc
 
 ---
 
+## 🔒 Privacy & Data
+
+- Prompts are assembled locally and sent to the configured LLM endpoint.
+- By default this is a local LM Studio server, but if you change the base URL your prompts may be sent off-device.
+- Prompts can include world data, player info, and recent chat history depending on your settings.
+
+---
+
 ## 🚀 Long-Term Vision
 
 This engine should eventually be able to:

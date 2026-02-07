@@ -2,7 +2,6 @@ use eframe::egui;
 use std::sync::mpsc::Sender;
 
 use crate::engine::protocol::EngineCommand;
-use crate::model::message::{Message, RoleplaySpeaker};
 use crate::ui::app::{LeftTab, PartyMember, UiState};
 use std::collections::HashMap;
 
@@ -59,7 +58,7 @@ pub fn draw_left_panel(
             ui.separator();
 
             egui::ScrollArea::vertical().show(ui, |ui| match ui_state.left_tab {
-                LeftTab::Party => draw_party(ui, ui_state),
+                LeftTab::Party => draw_party(ui, ui_state, cmd_tx),
                 LeftTab::Npcs => draw_local_npcs(ui, ui_state, cmd_tx),
                 LeftTab::Quests => draw_quests(ui, ui_state),
                 LeftTab::Factions => draw_factions(ui, ui_state),
@@ -86,7 +85,7 @@ pub fn draw_left_panel(
    Party UI
    ========================= */
 
-fn draw_party(ui: &mut egui::Ui, state: &mut UiState) {
+fn draw_party(ui: &mut egui::Ui, state: &mut UiState, cmd_tx: &Sender<EngineCommand>) {
     ui.heading("Party");
 
     if ui.button("➕ Add Member").clicked() {
@@ -107,16 +106,67 @@ fn draw_party(ui: &mut egui::Ui, state: &mut UiState) {
             });
 
             ui.label("Name");
-            ui.text_edit_singleline(&mut member.name);
+            let mut lock_changed = false;
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut member.name);
+                if ui.checkbox(&mut member.lock_name, "Lock").changed() {
+                    lock_changed = true;
+                }
+            });
 
             ui.label("Role/Class");
-            ui.text_edit_singleline(&mut member.role);
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut member.role);
+                if ui.checkbox(&mut member.lock_role, "Lock").changed() {
+                    lock_changed = true;
+                }
+            });
 
             ui.label("Details");
-            ui.text_edit_multiline(&mut member.details);
+            ui.horizontal(|ui| {
+                ui.text_edit_multiline(&mut member.details);
+                if ui.checkbox(&mut member.lock_details, "Lock").changed() {
+                    lock_changed = true;
+                }
+            });
+
+            ui.label("Weapons");
+            ui.horizontal(|ui| {
+                editable_list_with_id(ui, &mut member.weapons, ("party_weapons", i));
+                if ui.checkbox(&mut member.lock_weapons, "Lock").changed() {
+                    lock_changed = true;
+                }
+            });
+
+            ui.label("Armour");
+            ui.horizontal(|ui| {
+                editable_list_with_id(ui, &mut member.armor, ("party_armor", i));
+                if ui.checkbox(&mut member.lock_armor, "Lock").changed() {
+                    lock_changed = true;
+                }
+            });
 
             ui.label("Clothing");
-            editable_list_with_id(ui, &mut member.clothing, ("party_clothing", i));
+            ui.horizontal(|ui| {
+                editable_list_with_id(ui, &mut member.clothing, ("party_clothing", i));
+                if ui.checkbox(&mut member.lock_clothing, "Lock").changed() {
+                    lock_changed = true;
+                }
+            });
+
+            if lock_changed {
+                if let Some(id) = member.id.as_ref() {
+                    let _ = cmd_tx.send(EngineCommand::SetPartyMemberLocks {
+                        id: id.clone(),
+                        lock_name: member.lock_name,
+                        lock_role: member.lock_role,
+                        lock_details: member.lock_details,
+                        lock_weapons: member.lock_weapons,
+                        lock_armor: member.lock_armor,
+                        lock_clothing: member.lock_clothing,
+                    });
+                }
+            }
         });
 
         ui.add_space(6.0);
@@ -169,7 +219,15 @@ fn draw_local_npcs(
                                     name: npc.name.clone(),
                                     role: npc.role.clone(),
                                     details: npc.notes.clone(),
+                                    weapons: Vec::new(),
+                                    armor: Vec::new(),
                                     clothing: Vec::new(),
+                                    lock_name: false,
+                                    lock_role: false,
+                                    lock_details: false,
+                                    lock_weapons: false,
+                                    lock_armor: false,
+                                    lock_clothing: false,
                                 });
                             }
                             let _ = cmd_tx.send(EngineCommand::AddNpcToParty {
@@ -212,25 +270,6 @@ fn collect_local_npcs(state: &UiState) -> Vec<LocalNpc> {
                 },
             );
         }
-    }
-
-    for msg in &state.rendered_messages {
-        let Message::Roleplay { speaker, text } = msg else { continue };
-        if !matches!(speaker, RoleplaySpeaker::Npc) {
-            continue;
-        }
-        let Some((name, _body)) = text.split_once(':') else { continue };
-        let name = name.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let id = npc_id_from_name(name);
-        map.entry(id.clone()).or_insert(LocalNpc {
-            id,
-            name: name.to_string(),
-            role: "Unknown".to_string(),
-            notes: String::new(),
-        });
     }
 
     map.into_values().collect()
@@ -360,18 +399,6 @@ fn quest_status_label(status: &crate::model::game_state::QuestStatus) -> &'stati
         crate::model::game_state::QuestStatus::Completed => "completed",
         crate::model::game_state::QuestStatus::Failed => "failed",
     }
-}
-
-fn npc_id_from_name(name: &str) -> String {
-    let mut id = String::from("npc_");
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() {
-            id.push(ch.to_ascii_lowercase());
-        } else if !id.ends_with('_') {
-            id.push('_');
-        }
-    }
-    id.trim_end_matches('_').to_string()
 }
 
 fn editable_list_with_id<T: std::hash::Hash>(

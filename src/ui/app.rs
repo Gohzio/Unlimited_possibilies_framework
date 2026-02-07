@@ -211,7 +211,23 @@ pub struct PartyMember {
     pub role: String,
     pub details: String,
     #[serde(default)]
+    pub weapons: Vec<String>,
+    #[serde(default)]
+    pub armor: Vec<String>,
+    #[serde(default)]
     pub clothing: Vec<String>,
+    #[serde(default)]
+    pub lock_name: bool,
+    #[serde(default)]
+    pub lock_role: bool,
+    #[serde(default)]
+    pub lock_details: bool,
+    #[serde(default)]
+    pub lock_weapons: bool,
+    #[serde(default)]
+    pub lock_armor: bool,
+    #[serde(default)]
+    pub lock_clothing: bool,
 }
 
 
@@ -291,6 +307,11 @@ pub struct UiState {
     pub llm_base_url: String,
     pub llm_model: String,
     pub llm_api_key: String,
+    pub ui_error: Option<String>,
+    pub chat_log_limit: Option<usize>,
+    pub save_full_chat_log: bool,
+    pub prompt_history_limit: Option<usize>,
+    pub timing_enabled: bool,
 
     pub left_tab: LeftTab,
     pub right_tab: RightTab,      // NEW: track which right panel tab is active
@@ -336,6 +357,11 @@ impl Default for UiState {
             llm_base_url: "http://localhost:1234/v1".into(),
             llm_model: "local-model".into(),
             llm_api_key: String::new(),
+            ui_error: None,
+            chat_log_limit: None,
+            save_full_chat_log: false,
+            prompt_history_limit: Some(50),
+            timing_enabled: true,
 
             left_tab: LeftTab::Party,
             right_tab: RightTab::Player, // NEW: default tab
@@ -379,6 +405,15 @@ impl UiState {
             } else {
                 Some(api_key.to_string())
             },
+        }
+    }
+
+    pub fn apply_chat_log_limit(&mut self) {
+        if let Some(limit) = self.chat_log_limit {
+            if self.rendered_messages.len() > limit {
+                let excess = self.rendered_messages.len() - limit;
+                self.rendered_messages.drain(0..excess);
+            }
         }
     }
 }
@@ -568,15 +603,25 @@ impl UiState {
             use crate::model::narrative_event::NarrativeEvent;
             match &app.event {
                 NarrativeEvent::AddPartyMember { id, name, role } => {
-                    self.upsert_party_member(Some(id), Some(name), Some(role), None, None);
-                }
-                NarrativeEvent::NpcJoinParty { id, name, role, details } => {
                     self.upsert_party_member(
                         Some(id),
+                        Some(name),
+                        Some(role),
+                        None,
+                        None,
+                        None,
+                        None,
+                    );
+                }
+                NarrativeEvent::NpcJoinParty { id, name, role, details, clothing, weapons, armor } => {
+                    self.upsert_party_member(
+                        id.as_deref(),
                         name.as_deref(),
                         role.as_deref(),
                         details.as_deref(),
-                        None,
+                        clothing.as_deref(),
+                        weapons.as_deref(),
+                        armor.as_deref(),
                     );
                 }
                 NarrativeEvent::NpcLeaveParty { id } => {
@@ -600,6 +645,8 @@ impl UiState {
                 Some(&member.role),
                 Some(&member.details),
                 Some(&member.clothing),
+                Some(&member.weapons),
+                Some(&member.armor),
             );
         }
     }
@@ -646,55 +693,8 @@ impl UiState {
     }
 
     pub fn sync_party_from_messages(&mut self) {
-        let messages = self.rendered_messages.clone();
-        for msg in messages {
-            let crate::model::message::Message::Roleplay { speaker, text } = msg else {
-                continue;
-            };
-            if !matches!(speaker, crate::model::message::RoleplaySpeaker::PartyMember) {
-                if matches!(speaker, crate::model::message::RoleplaySpeaker::Narrator) {
-                    self.auto_detect_party_details(&text);
-                }
-                continue;
-            }
-            let Some((name, body)) = text.split_once(':') else {
-                continue;
-            };
-            let name = name.trim();
-            let body = body.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let details = if body.is_empty() { None } else { Some(body) };
-            self.upsert_party_member(None, Some(name), None, details, None);
-        }
-    }
-
-    fn auto_detect_party_details(&mut self, text: &str) {
-        if self.party.is_empty() {
-            return;
-        }
-        let lower = text.to_ascii_lowercase();
-        for member in self.party.clone() {
-            let name = member.name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let name_lower = name.to_ascii_lowercase();
-            if !contains_word(&lower, &name_lower) {
-                continue;
-            }
-
-            let details = text.trim();
-            let clothing = extract_clothing_from_text(text);
-            self.upsert_party_member(
-                member.id.as_deref(),
-                Some(name),
-                None,
-                Some(details),
-                if clothing.is_empty() { None } else { Some(&clothing) },
-            );
-        }
+        // Party details should only be updated via structured events/snapshots,
+        // not inferred from narration or dialogue.
     }
 
     fn upsert_party_member(
@@ -704,6 +704,8 @@ impl UiState {
         role: Option<&str>,
         details: Option<&str>,
         clothing: Option<&[String]>,
+        weapons: Option<&[String]>,
+        armor: Option<&[String]>,
     ) {
         let mut index = None;
         if let Some(id) = id {
@@ -730,31 +732,52 @@ impl UiState {
                 member.id = id.map(|v| v.to_string());
             }
 
-            if !name_value.is_empty()
+            if !member.lock_name
+                && !name_value.is_empty()
                 && (member.name.trim().is_empty() || member.name.eq_ignore_ascii_case("unknown"))
             {
                 member.name = name_value.to_string();
             }
 
-            if !role_value.is_empty()
+            if !member.lock_role
+                && !role_value.is_empty()
                 && (member.role.trim().is_empty() || member.role.eq_ignore_ascii_case("unknown"))
             {
                 member.role = role_value.to_string();
             }
 
-            if let Some(details) = details {
-                let trimmed = details.trim();
-                if !trimmed.is_empty() {
-                    if member.details.trim().is_empty() {
-                        member.details = trimmed.to_string();
-                    } else if !member.details.contains(trimmed) {
-                        member.details = format!("{}\n{}", member.details.trim_end(), trimmed);
+            if !member.lock_details {
+                if let Some(details) = details {
+                    let trimmed = details.trim();
+                    if !trimmed.is_empty() {
+                        if member.details.trim().is_empty() {
+                            member.details = trimmed.to_string();
+                        } else if !member.details.contains(trimmed) {
+                            member.details =
+                                format!("{}\n{}", member.details.trim_end(), trimmed);
+                        }
                     }
                 }
             }
-            if let Some(clothing) = clothing {
-                if !clothing.is_empty() {
-                    member.clothing = clothing.to_vec();
+            if !member.lock_clothing {
+                if let Some(clothing) = clothing {
+                    if !clothing.is_empty() {
+                        member.clothing = clothing.to_vec();
+                    }
+                }
+            }
+            if !member.lock_weapons {
+                if let Some(weapons) = weapons {
+                    if !weapons.is_empty() {
+                        member.weapons = weapons.to_vec();
+                    }
+                }
+            }
+            if !member.lock_armor {
+                if let Some(armor) = armor {
+                    if !armor.is_empty() {
+                        member.armor = armor.to_vec();
+                    }
                 }
             }
         } else {
@@ -766,7 +789,15 @@ impl UiState {
                 name: name_value.to_string(),
                 role: role_value.to_string(),
                 details: details.unwrap_or("").trim().to_string(),
+                weapons: weapons.unwrap_or(&[]).to_vec(),
+                armor: armor.unwrap_or(&[]).to_vec(),
                 clothing: clothing.unwrap_or(&[]).to_vec(),
+                lock_name: false,
+                lock_role: false,
+                lock_details: false,
+                lock_weapons: false,
+                lock_armor: false,
+                lock_clothing: false,
             });
         }
     }
@@ -1111,48 +1142,6 @@ fn inventory_label(id: &str, quantity: u32) -> String {
     }
 }
 
-fn contains_word(haystack: &str, needle: &str) -> bool {
-    if needle.is_empty() {
-        return false;
-    }
-    haystack
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|w| w.eq_ignore_ascii_case(needle))
-}
-
-fn extract_clothing_from_text(text: &str) -> Vec<String> {
-    let lower = text.to_ascii_lowercase();
-    let mut out = Vec::new();
-    let markers = ["wearing ", "clad in ", "dressed in "];
-    for marker in markers {
-        if let Some(pos) = lower.find(marker) {
-            let start = pos + marker.len();
-            let tail = &text[start..];
-            let sentence = tail
-                .split_terminator(|c| c == '.' || c == '!' || c == '?')
-                .next()
-                .unwrap_or(tail);
-            for part in sentence.split(|c| c == ',' || c == ';') {
-                let trimmed = part.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                let cleaned = trimmed
-                    .trim_start_matches("a ")
-                    .trim_start_matches("an ")
-                    .trim_start_matches("the ")
-                    .trim();
-                if cleaned.is_empty() {
-                    continue;
-                }
-                out.push(cleaned.to_string());
-            }
-            break;
-        }
-    }
-    out
-}
-
 fn remove_inventory_entry(list: &mut Vec<String>, id: &str) {
     let needle = id.to_lowercase();
     let prefix = format!("{} x", needle);
@@ -1179,6 +1168,14 @@ pub struct AppConfig {
     pub llm_model: String,
     #[serde(default)]
     pub llm_api_key: String,
+    #[serde(default)]
+    pub chat_log_limit: Option<usize>,
+    #[serde(default)]
+    pub save_full_chat_log: bool,
+    #[serde(default)]
+    pub prompt_history_limit: Option<usize>,
+    #[serde(default = "default_timing_enabled")]
+    pub timing_enabled: bool,
 }
 
 impl Default for AppConfig {
@@ -1191,8 +1188,16 @@ impl Default for AppConfig {
             llm_base_url: "http://localhost:1234/v1".into(),
             llm_model: "local-model".into(),
             llm_api_key: String::new(),
+            chat_log_limit: None,
+            save_full_chat_log: false,
+            prompt_history_limit: Some(50),
+            timing_enabled: default_timing_enabled(),
         }
     }
+}
+
+fn default_timing_enabled() -> bool {
+    true
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SerializableColor {
@@ -1237,6 +1242,9 @@ impl MyApp {
 
         let mut ui = UiState::default();
         load_config(&mut ui);
+        let _ = cmd_tx.send(EngineCommand::SetTimingEnabled {
+            enabled: ui.timing_enabled,
+        });
 
         Self { ui, cmd_tx, resp_rx }
     }
@@ -1246,11 +1254,22 @@ impl MyApp {
     }
 
     pub fn build_game_context(&self) -> GameContext {
+        let history = match self.ui.prompt_history_limit {
+            Some(0) => Vec::new(),
+            Some(limit) => {
+                if self.ui.rendered_messages.len() > limit {
+                    self.ui.rendered_messages[self.ui.rendered_messages.len() - limit..].to_vec()
+                } else {
+                    self.ui.rendered_messages.clone()
+                }
+            }
+            None => self.ui.rendered_messages.clone(),
+        };
         GameContext {
             world: self.ui.world.clone(),
             player: self.ui.character.clone(),
             party: self.ui.party.clone(),
-            history: self.ui.rendered_messages.clone(),
+            history,
             snapshot: self.ui.snapshot.clone(),
         }
     }
@@ -1266,13 +1285,28 @@ impl eframe::App for MyApp {
         ctx.set_pixels_per_point(self.ui.ui_scale);
         apply_text_scale(ctx, &mut self.ui);
 
+        let mut received_response = false;
         while let Ok(resp) = self.resp_rx.try_recv() {
+            received_response = true;
             match resp {
                 EngineResponse::FullMessageHistory(msgs) => {
                     self.ui.rendered_messages = msgs;
                     self.ui.should_auto_scroll = true;
+                    self.ui.apply_chat_log_limit();
                     self.ui.sync_party_from_messages();
                     self.ui.ensure_left_tab_visible();
+                }
+                EngineResponse::AppendMessages(msgs) => {
+                    if !msgs.is_empty() {
+                        self.ui.rendered_messages.extend(msgs);
+                        self.ui.should_auto_scroll = true;
+                        self.ui.apply_chat_log_limit();
+                        self.ui.sync_party_from_messages();
+                        self.ui.ensure_left_tab_visible();
+                    }
+                }
+                EngineResponse::UiError { message } => {
+                    self.ui.ui_error = Some(message);
                 }
                 EngineResponse::NarrativeApplied { report, snapshot } => {
                     self.ui.snapshot = Some(snapshot.clone());
@@ -1285,14 +1319,16 @@ impl eframe::App for MyApp {
                         let t = format!("{:?}", a.outcome);
                         self.ui.rendered_messages.push(Message::System(t));
                     }
+                    self.ui.apply_chat_log_limit();
                 }
                 EngineResponse::GameLoaded { save, snapshot } => {
                     self.ui.world = save.world;
                     self.ui.character = save.player;
-                    self.ui.party = save.party;
+                    self.ui.party = Vec::new();
                     self.ui.rendered_messages = save.messages;
                     self.ui.speaker_colors = save.speaker_colors;
                     self.ui.snapshot = Some(snapshot.clone());
+                    self.ui.apply_chat_log_limit();
                     self.ui.sync_party_from_snapshot(&snapshot);
                     self.ui.sync_player_from_snapshot(&snapshot);
                     self.ui.ensure_left_tab_visible();
@@ -1303,12 +1339,16 @@ impl eframe::App for MyApp {
                 }
             }
         }
+        if received_response {
+            // Ensure async engine responses are rendered immediately.
+            ctx.request_repaint();
+        }
 
         draw_left_panel(ctx, &mut self.ui, &self.cmd_tx);
         draw_right_panel(ctx, &mut self.ui, &self.cmd_tx);
         draw_center_panel(ctx, self);
 
-        draw_settings_window(ctx, &mut self.ui);
+        draw_settings_window(ctx, &mut self.ui, &self.cmd_tx);
         draw_options_window(ctx, &mut self.ui, &self.cmd_tx);
     }
 }
@@ -1317,7 +1357,11 @@ impl eframe::App for MyApp {
    Settings / Options Windows
    ========================= */
 
-fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
+fn draw_settings_window(
+    ctx: &egui::Context,
+    ui_state: &mut UiState,
+    cmd_tx: &mpsc::Sender<EngineCommand>,
+) {
     let mut open = ui_state.show_settings;
 
     egui::Window::new("⚙ Settings")
@@ -1340,6 +1384,71 @@ fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
                 .changed();
 
             ui.separator();
+            ui.label("Chat Log Limit");
+            let mut chat_limit = ui_state.chat_log_limit;
+            let mut chat_limit_changed = false;
+            egui::ComboBox::from_id_salt("chat_log_limit")
+                .selected_text(match chat_limit {
+                    None => "All".to_string(),
+                    Some(value) => value.to_string(),
+                })
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(chat_limit.is_none(), "All").clicked() {
+                        chat_limit = None;
+                        chat_limit_changed = true;
+                    }
+                    for value in [25_usize, 50, 100, 150, 200] {
+                        if ui
+                            .selectable_label(chat_limit == Some(value), value.to_string())
+                            .clicked()
+                        {
+                            chat_limit = Some(value);
+                            chat_limit_changed = true;
+                        }
+                    }
+                });
+
+            let save_chat_log_changed = ui
+                .checkbox(
+                    &mut ui_state.save_full_chat_log,
+                    "Save full chat log with game save",
+                )
+                .changed();
+
+            ui.separator();
+            ui.label("Prompt History (messages)");
+            let mut prompt_history = ui_state.prompt_history_limit;
+            let mut prompt_history_changed = false;
+            egui::ComboBox::from_id_salt("prompt_history_limit")
+                .selected_text(match prompt_history {
+                    None => "All".to_string(),
+                    Some(0) => "Off".to_string(),
+                    Some(value) => value.to_string(),
+                })
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(prompt_history == Some(0), "Off").clicked() {
+                        prompt_history = Some(0);
+                        prompt_history_changed = true;
+                    }
+                    for value in [10_usize, 25, 50, 100, 200, 400, 800] {
+                        if ui
+                            .selectable_label(prompt_history == Some(value), value.to_string())
+                            .clicked()
+                        {
+                            prompt_history = Some(value);
+                            prompt_history_changed = true;
+                        }
+                    }
+                    if ui.selectable_label(prompt_history.is_none(), "All").clicked() {
+                        prompt_history = None;
+                        prompt_history_changed = true;
+                    }
+                });
+
+            let timing_changed = ui
+                .checkbox(&mut ui_state.timing_enabled, "Show timing debug lines")
+                .changed();
+
             ui.heading("Speaker Colors");
 
             color_picker(ui, "Player", &mut ui_state.speaker_colors.player);
@@ -1351,8 +1460,24 @@ fn draw_settings_window(ctx: &egui::Context, ui_state: &mut UiState) {
             if ui_scale_changed
                 || text_scale_changed
                 || chat_text_scale_changed
+                || chat_limit_changed
+                || save_chat_log_changed
+                || prompt_history_changed
+                || timing_changed
                 || ui.button("Save").clicked()
             {
+                if chat_limit_changed {
+                    ui_state.chat_log_limit = chat_limit;
+                    ui_state.apply_chat_log_limit();
+                }
+                if prompt_history_changed {
+                    ui_state.prompt_history_limit = prompt_history;
+                }
+                if timing_changed {
+                    let _ = cmd_tx.send(EngineCommand::SetTimingEnabled {
+                        enabled: ui_state.timing_enabled,
+                    });
+                }
                 save_config(ui_state);
             }
         });
@@ -1543,6 +1668,10 @@ pub(crate) fn save_config(ui: &UiState) {
         llm_base_url: ui.llm_base_url.clone(),
         llm_model: ui.llm_model.clone(),
         llm_api_key: ui.llm_api_key.clone(),
+        chat_log_limit: ui.chat_log_limit,
+        save_full_chat_log: ui.save_full_chat_log,
+        prompt_history_limit: ui.prompt_history_limit,
+        timing_enabled: ui.timing_enabled,
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
         let _ = fs::write(config_path(), json);
@@ -1567,7 +1696,12 @@ fn load_config(ui: &mut UiState) {
                 cfg.llm_model
             };
             ui.llm_api_key = cfg.llm_api_key;
+            ui.chat_log_limit = cfg.chat_log_limit;
+            ui.save_full_chat_log = cfg.save_full_chat_log;
+            ui.prompt_history_limit = cfg.prompt_history_limit;
+            ui.timing_enabled = cfg.timing_enabled;
             sanitize_ui_scales(ui);
+            ui.apply_chat_log_limit();
         }
     }
 }

@@ -207,3 +207,25 @@ fn parse_value(raw: &str) -> Value {
         _ => Value::String(raw.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::decode_llm_events;
+    use crate::model::narrative_event::NarrativeEvent;
+
+    #[test]
+    fn decode_valid_json_array() {
+        let input = r#"[{\"type\":\"rest\",\"description\":\"Camp\"}]"#;
+        let events = decode_llm_events(input).expect("decode");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], NarrativeEvent::Rest { .. }));
+    }
+
+    #[test]
+    fn decode_loose_events() {
+        let input = "- rest { description: \"Camp\" }";
+        let events = decode_llm_events(input).expect("decode");
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], NarrativeEvent::Rest { .. }));
+    }
+}

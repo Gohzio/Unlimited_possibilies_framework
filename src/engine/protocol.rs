@@ -32,12 +32,29 @@ pub enum EngineCommand {
         details: String,
     },
 
+    /// UI-driven: lock party member fields to prevent LLM/engine edits
+    SetPartyMemberLocks {
+        id: String,
+        lock_name: bool,
+        lock_role: bool,
+        lock_details: bool,
+        lock_weapons: bool,
+        lock_armor: bool,
+        lock_clothing: bool,
+    },
+
+    /// UI-driven: toggle timing debug output
+    SetTimingEnabled {
+        enabled: bool,
+    },
+
     SaveGame {
         path: std::path::PathBuf,
         world: crate::ui::app::WorldDefinition,
         player: crate::ui::app::CharacterDefinition,
         party: Vec<crate::ui::app::PartyMember>,
         speaker_colors: crate::ui::app::SpeakerColors,
+        save_chat_log: bool,
     },
 
     LoadGame {
@@ -49,6 +66,8 @@ pub enum EngineCommand {
 #[derive(Debug)]
 pub enum EngineResponse {
     FullMessageHistory(Vec<Message>),
+    AppendMessages(Vec<Message>),
+    UiError { message: String },
     NarrativeApplied {
         report: NarrativeApplyReport,
         snapshot: GameStateSnapshot,

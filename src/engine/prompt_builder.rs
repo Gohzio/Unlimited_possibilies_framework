@@ -48,6 +48,7 @@ impl GamePromptBuilder {
         push_game_system_prompt(&mut prompt, context, false);
         push_world_definition(&mut prompt, context, true);
         push_party_section(&mut prompt, context);
+        push_npc_registry(&mut prompt, context);
         push_history_section(&mut prompt, &context.history, "NARRATIVE HISTORY");
         push_current_situation(&mut prompt, context);
         push_player_action(&mut prompt, player_input);
@@ -67,6 +68,7 @@ impl GamePromptBuilder {
         push_game_system_prompt(&mut prompt, context, true);
         push_world_definition(&mut prompt, context, true);
         push_party_section(&mut prompt, context);
+        push_npc_registry(&mut prompt, context);
         push_current_situation(&mut prompt, context);
 
         if !requested_context.trim().is_empty() {
@@ -175,12 +177,12 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - update_quest { id, title?, description?, status?, difficulty?, negotiable?, reward_options?, rewards?, sub_quests? }\n\
 - set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
-- npc_spawn { id, name, role, details? }\n\
-- npc_update { id, name?, role?, details? }\n\
+- npc_spawn { id?, name, role, details? }\n\
+- npc_update { id?, name?, role?, details? }\n\
 - npc_despawn { id, reason? }\n\
-- npc_join_party { id, name?, role?, details? }\n\
+- npc_join_party { id?, name?, role?, details?, weapons?, armor?, clothing? }\n\
 - npc_leave_party { id }\n\
-- party_update { id, name?, role?, details?, clothing? }\n\
+- party_update { id, name?, role?, details?, weapons_add?, weapons_remove?, armor_add?, armor_remove?, clothing_add?, clothing_remove? }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - add_item { item_id, quantity, set_id? }\n\
 - add_exp { amount }\n\
@@ -209,16 +211,19 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 
     prompt.push_str(
         "NPC Tracking:\n\
-- When a new NPC is introduced or speaks for the first time, emit npc_spawn with id, name, role, and details.\n\
-- When you learn new NPC facts (real name, title, favorite drink, habits), emit npc_update with details.\n\
+- When a new NPC is introduced or speaks for the first time, emit npc_spawn with name, role, and details. The id is optional.\n\
+- The engine will assign an id if you omit it. Use ids from the NPC REGISTRY for future updates.\n\
+- When you learn new NPC facts (real name, title, favorite drink, habits), emit npc_update with only the new fields.\n\
 - When an NPC leaves the scene or the player walks away, emit npc_despawn { id }.\n\
-- Keep npc id stable (lowercase snake_case, e.g., guard_captain, smithy).\n\n"
+- Do NOT reuse an existing NPC name. If a name is already in USED NPC NAMES, modify it (surname or last initial).\n\
+- Never mention NPC ids in the narrative.\n\n"
     );
 
     prompt.push_str(
         "Party Tracking:\n\
 - Only emit party_update when the player explicitly asks to examine/describe a party member.\n\
-- clothing should be an array of short strings; details should be a concise summary (1-3 sentences).\n\n"
+- Use *_add for newly observed gear and *_remove when old gear is replaced.\n\
+- clothing/armor/weapons entries should be short strings; details should be a concise summary (1-3 sentences).\n\n"
     );
 
     prompt.push_str(
@@ -375,8 +380,8 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - dialogue { speaker, text }\n\
 - travel { from, to }\n\
 - rest { description }\n\
-- npc_spawn { id, name, role, details? }\n\
-- npc_update { id, name?, role?, details? }\n\
+- npc_spawn { id?, name, role, details? }\n\
+- npc_update { id?, name?, role?, details? }\n\
 - npc_despawn { id, reason? }\n\
 - relationship_change { subject_id, target_id, delta }\n\
 - set_flag { flag }\n\
@@ -520,6 +525,18 @@ fn push_party_section(prompt: &mut String, context: &GameContext) {
                 "- [PARTY: {}] Role: {}\n  Details: {}\n",
                 member.name, member.role, member.details
             ));
+            if !member.weapons.is_empty() {
+                prompt.push_str("  Weapons:\n");
+                for item in &member.weapons {
+                    prompt.push_str(&format!("  - {}\n", item));
+                }
+            }
+            if !member.armor.is_empty() {
+                prompt.push_str("  Armour:\n");
+                for item in &member.armor {
+                    prompt.push_str(&format!("  - {}\n", item));
+                }
+            }
             if !member.clothing.is_empty() {
                 prompt.push_str("  Clothing:\n");
                 for item in &member.clothing {
@@ -529,6 +546,43 @@ fn push_party_section(prompt: &mut String, context: &GameContext) {
         }
     }
     prompt.push('\n');
+}
+
+fn push_npc_registry(prompt: &mut String, context: &GameContext) {
+    use std::collections::BTreeSet;
+
+    prompt.push_str("NPC REGISTRY (hidden):\n");
+    if let Some(snapshot) = &context.snapshot {
+        if snapshot.npcs.is_empty() {
+            prompt.push_str("None\n\n");
+        } else {
+            let mut npcs = snapshot.npcs.clone();
+            npcs.sort_by(|a, b| a.name.cmp(&b.name));
+            for npc in &npcs {
+                prompt.push_str(&format!("- {}: {} ({})\n", npc.id, npc.name, npc.role));
+            }
+            prompt.push('\n');
+        }
+        let mut names: BTreeSet<String> = BTreeSet::new();
+        for npc in &snapshot.npcs {
+            let trimmed = npc.name.trim();
+            if !trimmed.is_empty() {
+                names.insert(trimmed.to_string());
+            }
+        }
+        prompt.push_str("USED NPC NAMES (hidden):\n");
+        if names.is_empty() {
+            prompt.push_str("None\n\n");
+        } else {
+            for name in names {
+                prompt.push_str(&format!("- {}\n", name));
+            }
+            prompt.push('\n');
+        }
+    } else {
+        prompt.push_str("None\n\n");
+        prompt.push_str("USED NPC NAMES (hidden):\nNone\n\n");
+    }
 }
 
 fn push_history_section(prompt: &mut String, history: &[Message], label: &str) {
@@ -543,8 +597,11 @@ fn push_history_section(prompt: &mut String, history: &[Message], label: &str) {
 
 fn push_history_lines(prompt: &mut String, history: &[Message]) {
     for msg in history {
-        if let Message::Roleplay { speaker, text } = msg {
-            match speaker {
+        match msg {
+            Message::User(text) => {
+                prompt.push_str(&format!("[PLAYER] {}\n", text));
+            }
+            Message::Roleplay { speaker, text } => match speaker {
                 RoleplaySpeaker::Narrator => {
                     prompt.push_str(&format!("[NARRATOR] {}\n", text));
                 }
@@ -562,7 +619,8 @@ fn push_history_lines(prompt: &mut String, history: &[Message]) {
                         prompt.push_str(&format!("[PARTY] {}\n", text));
                     }
                 }
-            }
+            },
+            Message::System(_) => {}
         }
     }
 

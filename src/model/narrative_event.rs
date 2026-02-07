@@ -87,24 +87,44 @@ pub enum NarrativeEvent {
         name: Option<String>,
         role: Option<String>,
         details: Option<String>,
-        clothing: Option<Vec<String>>,
+        #[serde(default, alias = "clothing")]
+        clothing_add: Option<Vec<String>>,
+        #[serde(default)]
+        clothing_remove: Option<Vec<String>>,
+        #[serde(default, alias = "weapons")]
+        weapons_add: Option<Vec<String>>,
+        #[serde(default)]
+        weapons_remove: Option<Vec<String>>,
+        #[serde(default, alias = "armor")]
+        armor_add: Option<Vec<String>>,
+        #[serde(default)]
+        armor_remove: Option<Vec<String>>,
     },
     NpcSpawn {
-        id: String,
+        #[serde(default)]
+        id: Option<String>,
         name: String,
         role: String,
         #[serde(alias = "notes")]
         details: Option<String>,
     },
     NpcJoinParty {
-        id: String,
+        #[serde(default)]
+        id: Option<String>,
         name: Option<String>,
         role: Option<String>,
         #[serde(alias = "notes")]
         details: Option<String>,
+        #[serde(default)]
+        clothing: Option<Vec<String>>,
+        #[serde(default)]
+        weapons: Option<Vec<String>>,
+        #[serde(default)]
+        armor: Option<Vec<String>>,
     },
     NpcUpdate {
-        id: String,
+        #[serde(default)]
+        id: Option<String>,
         name: Option<String>,
         role: Option<String>,
         #[serde(alias = "notes")]

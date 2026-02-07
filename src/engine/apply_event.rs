@@ -4,6 +4,89 @@ use crate::model::{
 };
 use crate::model::event_result::EventApplyOutcome;
 
+fn generate_unique_npc_id(state: &InternalGameState, name: &str) -> String {
+    let mut base = String::new();
+    let mut last_was_underscore = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            base.push(ch.to_ascii_lowercase());
+            last_was_underscore = false;
+        } else if !last_was_underscore {
+            base.push('_');
+            last_was_underscore = true;
+        }
+    }
+    let trimmed = base.trim_matches('_');
+    let base_id = if trimmed.is_empty() {
+        "npc".to_string()
+    } else {
+        format!("npc_{}", trimmed)
+    };
+    if !state.npcs.contains_key(&base_id) {
+        return base_id;
+    }
+    let mut idx = 2;
+    loop {
+        let candidate = format!("{}_{}", base_id, idx);
+        if !state.npcs.contains_key(&candidate) {
+            return candidate;
+        }
+        idx += 1;
+    }
+}
+
+fn find_npc_id_by_name(state: &InternalGameState, name: &str) -> Option<String> {
+    let needle = name.trim();
+    if needle.is_empty() {
+        return None;
+    }
+    state
+        .npcs
+        .iter()
+        .find_map(|(id, npc)| {
+            if npc.name.eq_ignore_ascii_case(needle) {
+                Some(id.clone())
+            } else {
+                None
+            }
+        })
+}
+
+fn merge_strings(target: &mut Vec<String>, add: Option<Vec<String>>, remove: Option<Vec<String>>) {
+    if let Some(remove) = remove {
+        if !remove.is_empty() {
+            target.retain(|item| !remove.iter().any(|r| r.eq_ignore_ascii_case(item)));
+        }
+    }
+    if let Some(add) = add {
+        for item in add {
+            let trimmed = item.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if !target.iter().any(|v| v.eq_ignore_ascii_case(trimmed)) {
+                target.push(trimmed.to_string());
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_strings;
+
+    #[test]
+    fn merge_add_remove_case_insensitive() {
+        let mut items = vec!["Sword".to_string(), "Shield".to_string()];
+        merge_strings(
+            &mut items,
+            Some(vec!["sword".to_string(), "Bow".to_string()]),
+            Some(vec!["shield".to_string()]),
+        );
+        assert_eq!(items, vec!["Sword".to_string(), "Bow".to_string()]);
+    }
+}
+
 fn apply_exp_gain(state: &mut InternalGameState, amount: i32, multiplier: f32) {
     let mut exp = (state.player.exp + amount).max(0);
     let mut next = state.player.exp_to_next.max(1);
@@ -122,7 +205,15 @@ pub fn apply_event(
                     role,
                     details: String::new(),
                     hp: 100,
+                    weapons: Vec::new(),
+                    armor: Vec::new(),
                     clothing: Vec::new(),
+                    lock_name: false,
+                    lock_role: false,
+                    lock_details: false,
+                    lock_weapons: false,
+                    lock_armor: false,
+                    lock_clothing: false,
                 },
             );
 
@@ -134,7 +225,12 @@ pub fn apply_event(
             name,
             role,
             details,
-            clothing,
+            clothing_add,
+            clothing_remove,
+            weapons_add,
+            weapons_remove,
+            armor_add,
+            armor_remove,
         } => {
             let Some(member) = state.party.get_mut(&id) else {
                 return EventApplyOutcome::Deferred {
@@ -142,38 +238,52 @@ pub fn apply_event(
                 };
             };
 
-            if let Some(name) = name {
-                let trimmed = name.trim();
-                if !trimmed.is_empty() {
-                    member.name = trimmed.to_string();
-                }
-            }
-            if let Some(role) = role {
-                let trimmed = role.trim();
-                if !trimmed.is_empty() {
-                    member.role = trimmed.to_string();
-                }
-            }
-            if let Some(details) = details {
-                let trimmed = details.trim();
-                if !trimmed.is_empty() {
-                    if member.details.trim().is_empty() {
-                        member.details = trimmed.to_string();
-                    } else if !member.details.contains(trimmed) {
-                        member.details = format!("{}\n{}", member.details.trim_end(), trimmed);
+            if !member.lock_name {
+                if let Some(name) = name {
+                    let trimmed = name.trim();
+                    if !trimmed.is_empty() {
+                        member.name = trimmed.to_string();
                     }
                 }
             }
-            if let Some(clothing) = clothing {
-                if !clothing.is_empty() {
-                    member.clothing = clothing;
+            if !member.lock_role {
+                if let Some(role) = role {
+                    let trimmed = role.trim();
+                    if !trimmed.is_empty() {
+                        member.role = trimmed.to_string();
+                    }
                 }
+            }
+            if !member.lock_details {
+                if let Some(details) = details {
+                    let trimmed = details.trim();
+                    if !trimmed.is_empty() {
+                        if member.details.trim().is_empty() {
+                            member.details = trimmed.to_string();
+                        } else if !member.details.contains(trimmed) {
+                            member.details = format!("{}\n{}", member.details.trim_end(), trimmed);
+                        }
+                    }
+                }
+            }
+            if !member.lock_clothing {
+                merge_strings(&mut member.clothing, clothing_add, clothing_remove);
+            }
+            if !member.lock_weapons {
+                merge_strings(&mut member.weapons, weapons_add, weapons_remove);
+            }
+            if !member.lock_armor {
+                merge_strings(&mut member.armor, armor_add, armor_remove);
             }
 
             EventApplyOutcome::Applied
         }
 
         NarrativeEvent::NpcSpawn { id, name, role, details } => {
+            let id = match id {
+                Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+                _ => generate_unique_npc_id(state, &name),
+            };
             if state.npcs.contains_key(&id) {
                 return EventApplyOutcome::Rejected {
                     reason: format!("NPC '{}' already exists", id),
@@ -183,7 +293,7 @@ pub fn apply_event(
             state.npcs.insert(
                 id.clone(),
                 crate::model::game_state::Npc {
-                    id,
+                    id: id.clone(),
                     name,
                     role,
                     notes: details.unwrap_or_default(),
@@ -194,15 +304,25 @@ pub fn apply_event(
             EventApplyOutcome::Applied
         }
 
-        NarrativeEvent::NpcJoinParty { id, name, role, details: _ } => {
+        NarrativeEvent::NpcJoinParty { id, name, role, details, clothing, weapons, armor } => {
+            let id = match id {
+                Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+                _ => match name.as_deref() {
+                    Some(name) => match find_npc_id_by_name(state, name) {
+                        Some(found) => found,
+                        None => generate_unique_npc_id(state, name),
+                    },
+                    None => generate_unique_npc_id(state, "npc"),
+                },
+            };
             if state.party.contains_key(&id) {
                 return EventApplyOutcome::Rejected {
                     reason: format!("Party member '{}' already exists", id),
                 };
             }
 
-            let (name, role) = if let Some(npc) = state.npcs.remove(&id) {
-                (npc.name, npc.role)
+            let (name, role, notes) = if let Some(npc) = state.npcs.remove(&id) {
+                (npc.name, npc.role, npc.notes)
             } else {
                 let Some(name) = name else {
                     return EventApplyOutcome::Rejected {
@@ -214,18 +334,32 @@ pub fn apply_event(
                         reason: format!("NPC '{}' not found and no role provided", id),
                     };
                 };
-                (name, role)
+                (name, role, String::new())
             };
+
+            let details_value = details
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| notes.trim());
 
             state.party.insert(
                 id.clone(),
                 crate::model::game_state::PartyMember {
-                    id,
+                    id: id.clone(),
                     name,
                     role,
-                    details: String::new(),
+                    details: details_value.to_string(),
                     hp: 100,
-                    clothing: Vec::new(),
+                    weapons: weapons.unwrap_or_default(),
+                    armor: armor.unwrap_or_default(),
+                    clothing: clothing.unwrap_or_default(),
+                    lock_name: false,
+                    lock_role: false,
+                    lock_details: false,
+                    lock_weapons: false,
+                    lock_armor: false,
+                    lock_clothing: false,
                 },
             );
 
@@ -238,6 +372,24 @@ pub fn apply_event(
             role,
             details,
         } => {
+            let id = match id {
+                Some(id) if !id.trim().is_empty() => id.trim().to_string(),
+                _ => match name.as_deref() {
+                    Some(name) => match find_npc_id_by_name(state, name) {
+                        Some(found) => found,
+                        None => {
+                            return EventApplyOutcome::Rejected {
+                                reason: format!("NPC '{}' not found", name),
+                            }
+                        }
+                    },
+                    None => {
+                        return EventApplyOutcome::Rejected {
+                            reason: "NPC update missing id or name".to_string(),
+                        }
+                    }
+                },
+            };
             let entry = state.npcs.entry(id.clone()).or_insert(
                 crate::model::game_state::Npc {
                     id,

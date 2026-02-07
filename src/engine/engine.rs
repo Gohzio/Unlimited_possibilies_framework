@@ -29,6 +29,8 @@ pub struct Engine {
     timing_enabled: bool,
 }
 
+const SAVE_VERSION: u32 = 3;
+
 #[derive(Clone, Copy, Debug)]
 enum QuestOfferSource {
     World,
@@ -47,6 +49,10 @@ impl Engine {
             game_state: InternalGameState::default(),
             timing_enabled: true,
         }
+    }
+
+    fn send_ui_error(&self, message: String) {
+        let _ = self.tx.send(EngineResponse::UiError { message });
     }
 
 pub fn run(&mut self) {
@@ -78,6 +84,7 @@ pub fn run(&mut self) {
                ========================= */
             EngineCommand::SubmitPlayerInput { text, context, llm } => {
                 let total_start = Instant::now();
+                let messages_start = self.messages.len();
                 self.game_state.player.exp_multiplier = context.world.exp_multiplier.max(1.0);
                 sync_stats_from_context(&mut self.game_state, &context);
                 update_action_counts(&mut self.game_state, &text);
@@ -93,9 +100,7 @@ pub fn run(&mut self) {
                             self.messages.push(Message::System(
                                 "No loot to add to inventory.".to_string(),
                             ));
-                            let _ = self.tx.send(
-                                EngineResponse::FullMessageHistory(self.messages.clone())
-                            );
+                            self.send_new_messages_since(messages_start);
                             continue;
                         }
 
@@ -111,9 +116,7 @@ pub fn run(&mut self) {
                                 snapshot,
                             }
                         );
-                        let _ = self.tx.send(
-                            EngineResponse::FullMessageHistory(self.messages.clone())
-                        );
+                        self.send_new_messages_since(messages_start);
                         continue;
                     }
 
@@ -137,9 +140,7 @@ pub fn run(&mut self) {
                                 snapshot,
                             }
                         );
-                        let _ = self.tx.send(
-                            EngineResponse::FullMessageHistory(self.messages.clone())
-                        );
+                        self.send_new_messages_since(messages_start);
                         continue;
                     }
                 }
@@ -155,9 +156,8 @@ pub fn run(&mut self) {
                             "LLM error: {}",
                             e
                         )));
-                        let _ = self.tx.send(
-                            EngineResponse::FullMessageHistory(self.messages.clone())
-                        );
+                        self.send_ui_error(format!("LLM error: {}", e));
+                        self.send_new_messages_since(messages_start);
                         continue;
                     }
                 };
@@ -177,6 +177,7 @@ pub fn run(&mut self) {
                             "Failed to parse EVENTS: {}",
                             err
                         )));
+                        self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
                         Vec::new()
                     }
                 };
@@ -204,9 +205,8 @@ pub fn run(&mut self) {
                                 "LLM error: {}",
                                 e
                             )));
-                            let _ = self.tx.send(
-                                EngineResponse::FullMessageHistory(self.messages.clone())
-                            );
+                            self.send_ui_error(format!("LLM error: {}", e));
+                            self.send_new_messages_since(messages_start);
                             continue;
                         }
                     };
@@ -223,6 +223,7 @@ pub fn run(&mut self) {
                                 "Failed to parse EVENTS: {}",
                                 err
                             )));
+                            self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
                             Vec::new()
                         }
                     };
@@ -234,9 +235,7 @@ pub fn run(&mut self) {
                             "Context was already provided. Please respond with narrative and events."
                                 .to_string(),
                         ));
-                        let _ = self.tx.send(
-                            EngineResponse::FullMessageHistory(self.messages.clone())
-                        );
+                        self.send_new_messages_since(messages_start);
                         continue;
                     }
 
@@ -327,9 +326,7 @@ pub fn run(&mut self) {
                         );
                     }
 
-                    let _ = self.tx.send(
-                        EngineResponse::FullMessageHistory(self.messages.clone())
-                    );
+                    self.send_new_messages_since(messages_start);
                     continue;
                 }
 
@@ -433,9 +430,7 @@ pub fn run(&mut self) {
                 }
 
                 // 10. Update UI with full history
-                let _ = self.tx.send(
-                    EngineResponse::FullMessageHistory(self.messages.clone())
-                );
+                self.send_new_messages_since(messages_start);
             }
 
             /* =========================
@@ -467,10 +462,13 @@ pub fn run(&mut self) {
                ========================= */
             EngineCommand::AddNpcToParty { id, name, role, details } => {
                 let event = crate::model::narrative_event::NarrativeEvent::NpcJoinParty {
-                    id,
+                    id: Some(id),
                     name: Some(name),
                     role: Some(role),
                     details: Some(details),
+                    clothing: None,
+                    weapons: None,
+                    armor: None,
                 };
 
                 let outcome = apply_event(&mut self.game_state, event.clone());
@@ -484,6 +482,29 @@ pub fn run(&mut self) {
                 );
             }
 
+            EngineCommand::SetPartyMemberLocks {
+                id,
+                lock_name,
+                lock_role,
+                lock_details,
+                lock_weapons,
+                lock_armor,
+                lock_clothing,
+            } => {
+                if let Some(member) = self.game_state.party.get_mut(&id) {
+                    member.lock_name = lock_name;
+                    member.lock_role = lock_role;
+                    member.lock_details = lock_details;
+                    member.lock_weapons = lock_weapons;
+                    member.lock_armor = lock_armor;
+                    member.lock_clothing = lock_clothing;
+                }
+            }
+
+            EngineCommand::SetTimingEnabled { enabled } => {
+                self.timing_enabled = enabled;
+            }
+
             /* =========================
                Save / Load Game
                ========================= */
@@ -493,9 +514,11 @@ pub fn run(&mut self) {
                 player,
                 party,
                 speaker_colors,
+                save_chat_log,
             } => {
+                let messages_start = self.messages.len();
                 let save = GameSave {
-                    version: 2,
+                    version: SAVE_VERSION,
                     world,
                     player,
                     party,
@@ -519,9 +542,17 @@ pub fn run(&mut self) {
                     }
                 }
 
-                let _ = self.tx.send(
-                    EngineResponse::FullMessageHistory(self.messages.clone())
-                );
+                if save_chat_log {
+                    let log_path = path.with_extension("log.txt");
+                    if let Err(err) = fs::write(&log_path, self.format_chat_log()) {
+                        self.messages.push(Message::System(format!(
+                            "Failed to save chat log: {}",
+                            err
+                        )));
+                    }
+                }
+
+                self.send_new_messages_since(messages_start);
             }
 
             EngineCommand::LoadGame { path } => {
@@ -530,7 +561,8 @@ pub fn run(&mut self) {
                     .and_then(|data| serde_json::from_str::<GameSave>(&data).map_err(|e| e.to_string()));
 
                 match result {
-                    Ok(save) => {
+                    Ok(mut save) => {
+                        migrate_save(&mut save);
                         self.messages = save.messages.clone();
                         self.game_state = save.internal_state.clone();
                         let snapshot = (&self.game_state).into();
@@ -539,18 +571,14 @@ pub fn run(&mut self) {
                             EngineResponse::GameLoaded { save, snapshot }
                         );
 
-                        let _ = self.tx.send(
-                            EngineResponse::FullMessageHistory(self.messages.clone())
-                        );
                     }
                     Err(err) => {
+                        let messages_start = self.messages.len();
                         self.messages.push(Message::System(format!(
                             "Failed to load game: {}",
                             err
                         )));
-                        let _ = self.tx.send(
-                            EngineResponse::FullMessageHistory(self.messages.clone())
-                        );
+                        self.send_new_messages_since(messages_start);
                     }
                 }
             }
@@ -574,29 +602,70 @@ pub fn run(&mut self) {
             return;
         }
 
-        let total_ms = total_start.elapsed().as_millis();
-        let split_ms = split_done.duration_since(total_start).as_millis();
-        let parse_ms = parse_done.duration_since(split_done).as_millis();
-        let narrative_ms = narrative_done.duration_since(parse_done).as_millis();
-        let apply_ms = apply_done.duration_since(narrative_done).as_millis();
-        let snapshot_ms = snapshot_done.duration_since(apply_done).as_millis();
+        let total_ms = total_start.elapsed().as_secs_f64() * 1000.0;
+        let split_ms = split_done.duration_since(total_start).as_secs_f64() * 1000.0;
+        let parse_ms = parse_done.duration_since(split_done).as_secs_f64() * 1000.0;
+        let narrative_ms = narrative_done.duration_since(parse_done).as_secs_f64() * 1000.0;
+        let apply_ms = apply_done.duration_since(narrative_done).as_secs_f64() * 1000.0;
+        let snapshot_ms = snapshot_done.duration_since(apply_done).as_secs_f64() * 1000.0;
 
         let mut msg = format!(
-            "[timing:{}] total={}ms split={}ms parse={}ms narrative={}ms apply={}ms snapshot={}ms",
+            "[timing:{}] total={:.2}ms split={:.2}ms parse={:.2}ms narrative={:.2}ms apply={:.2}ms snapshot={:.2}ms",
             tag, total_ms, split_ms, parse_ms, narrative_ms, apply_ms, snapshot_ms
         );
 
         if let Some((followup_start, followup_split_done, followup_parse_done)) = followup {
-            let followup_total = followup_start.elapsed().as_millis();
-            let followup_split = followup_split_done.duration_since(followup_start).as_millis();
-            let followup_parse = followup_parse_done.duration_since(followup_split_done).as_millis();
+            let followup_total = followup_start.elapsed().as_secs_f64() * 1000.0;
+            let followup_split =
+                followup_split_done.duration_since(followup_start).as_secs_f64() * 1000.0;
+            let followup_parse = followup_parse_done
+                .duration_since(followup_split_done)
+                .as_secs_f64()
+                * 1000.0;
             msg.push_str(&format!(
-                " followup_total={}ms followup_split={}ms followup_parse={}ms",
+                " followup_total={:.2}ms followup_split={:.2}ms followup_parse={:.2}ms",
                 followup_total, followup_split, followup_parse
             ));
         }
 
         self.messages.push(Message::System(msg));
+    }
+
+    fn send_new_messages_since(&self, start_len: usize) {
+        if self.messages.len() <= start_len {
+            return;
+        }
+        let _ = self.tx.send(EngineResponse::AppendMessages(
+            self.messages[start_len..].to_vec(),
+        ));
+    }
+
+    fn format_chat_log(&self) -> String {
+        let mut out = String::new();
+        for msg in &self.messages {
+            match msg {
+                Message::User(text) => {
+                    out.push_str("You: ");
+                    out.push_str(text);
+                }
+                Message::Roleplay { speaker, text } => {
+                    let label = match speaker {
+                        crate::model::message::RoleplaySpeaker::Narrator => "Narrator",
+                        crate::model::message::RoleplaySpeaker::Npc => "NPC",
+                        crate::model::message::RoleplaySpeaker::PartyMember => "Party",
+                    };
+                    out.push_str(label);
+                    out.push_str(": ");
+                    out.push_str(text);
+                }
+                Message::System(text) => {
+                    out.push_str("System: ");
+                    out.push_str(text);
+                }
+            }
+            out.push('\n');
+        }
+        out
     }
 
 }
@@ -1864,7 +1933,12 @@ fn sanitize_party_update(event: &NarrativeEvent) -> NarrativeEvent {
         name,
         role,
         details,
-        clothing,
+        clothing_add,
+        clothing_remove,
+        weapons_add,
+        weapons_remove,
+        armor_add,
+        armor_remove,
     } = event
     else {
         return event.clone();
@@ -1878,19 +1952,88 @@ fn sanitize_party_update(event: &NarrativeEvent) -> NarrativeEvent {
         }
     }
 
-    let mut clothing = clothing.clone();
-    if let Some(items) = clothing.as_mut() {
-        items.retain(|c| !c.trim().is_empty());
-        if items.len() > 8 {
-            items.truncate(8);
+    let mut clothing_add = clothing_add.clone();
+    let mut clothing_remove = clothing_remove.clone();
+    let mut weapons_add = weapons_add.clone();
+    let mut weapons_remove = weapons_remove.clone();
+    let mut armor_add = armor_add.clone();
+    let mut armor_remove = armor_remove.clone();
+
+    fn sanitize_items(items: &mut Option<Vec<String>>) {
+        if let Some(list) = items.as_mut() {
+            list.retain(|c| !c.trim().is_empty());
+            if list.len() > 8 {
+                list.truncate(8);
+            }
         }
     }
+
+    sanitize_items(&mut clothing_add);
+    sanitize_items(&mut clothing_remove);
+    sanitize_items(&mut weapons_add);
+    sanitize_items(&mut weapons_remove);
+    sanitize_items(&mut armor_add);
+    sanitize_items(&mut armor_remove);
 
     NarrativeEvent::PartyUpdate {
         id: id.clone(),
         name: name.clone(),
         role: role.clone(),
         details,
-        clothing,
+        clothing_add,
+        clothing_remove,
+        weapons_add,
+        weapons_remove,
+        armor_add,
+        armor_remove,
+    }
+}
+
+fn migrate_save(save: &mut GameSave) {
+    if save.version < SAVE_VERSION {
+        save.version = SAVE_VERSION;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_party_update;
+    use crate::model::narrative_event::NarrativeEvent;
+
+    #[test]
+    fn sanitize_party_update_trims_lists_and_details() {
+        let event = NarrativeEvent::PartyUpdate {
+            id: "p1".to_string(),
+            name: None,
+            role: None,
+            details: Some("a".repeat(400)),
+            clothing_add: Some(vec![
+                "hat".to_string(),
+                "".to_string(),
+                "boots".to_string(),
+                "gloves".to_string(),
+                "cape".to_string(),
+                "belt".to_string(),
+                "ring".to_string(),
+                "amulet".to_string(),
+                "extra".to_string(),
+            ]),
+            clothing_remove: None,
+            weapons_add: None,
+            weapons_remove: None,
+            armor_add: None,
+            armor_remove: None,
+        };
+
+        let sanitized = sanitize_party_update(&event);
+        if let NarrativeEvent::PartyUpdate { details, clothing_add, .. } = sanitized {
+            let details = details.expect("details");
+            assert!(details.len() <= 320);
+            let clothing_add = clothing_add.expect("clothing_add");
+            assert!(clothing_add.len() <= 8);
+            assert!(!clothing_add.iter().any(|v| v.trim().is_empty()));
+        } else {
+            panic!("expected party update");
+        }
     }
 }

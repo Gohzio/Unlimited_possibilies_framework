@@ -76,7 +76,24 @@ pub struct PartyMember {
     #[serde(default)]
     pub details: String,
     pub hp: i32,
+    #[serde(default)]
+    pub weapons: Vec<String>,
+    #[serde(default)]
+    pub armor: Vec<String>,
+    #[serde(default)]
     pub clothing: Vec<String>,
+    #[serde(default)]
+    pub lock_name: bool,
+    #[serde(default)]
+    pub lock_role: bool,
+    #[serde(default)]
+    pub lock_details: bool,
+    #[serde(default)]
+    pub lock_weapons: bool,
+    #[serde(default)]
+    pub lock_armor: bool,
+    #[serde(default)]
+    pub lock_clothing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

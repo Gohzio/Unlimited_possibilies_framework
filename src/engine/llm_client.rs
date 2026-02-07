@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use reqwest::blocking::Client;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct LlmConfig {
@@ -37,7 +38,9 @@ pub struct ChatMessageResponse {
     pub content: String,
 }
 pub fn call_llm(prompt: String, cfg: &LlmConfig) -> anyhow::Result<String> {
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()?;
 
     let req = ChatCompletionRequest {
         model: cfg.model.clone(),
@@ -57,12 +60,14 @@ pub fn call_llm(prompt: String, cfg: &LlmConfig) -> anyhow::Result<String> {
     }
 
     let resp = request.send()?.json::<ChatCompletionResponse>()?;
-
-    Ok(resp.choices[0].message.content.clone())
+    let first = resp.choices.get(0).ok_or_else(|| anyhow!("LLM returned no choices"))?;
+    Ok(first.message.content.clone())
 }
 
 pub fn test_connection(cfg: &LlmConfig) -> Result<String> {
-    let client = Client::new();
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
 
     let url = join_url(&cfg.base_url, "models");
     let mut request = client.get(url);

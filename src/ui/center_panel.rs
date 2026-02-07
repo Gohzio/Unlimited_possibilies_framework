@@ -53,6 +53,7 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                             player: app.ui.character.clone(),
                             party: app.ui.party.clone(),
                             speaker_colors: app.ui.speaker_colors.clone(),
+                            save_chat_log: app.ui.save_full_chat_log,
                         });
                     }
                 }
@@ -147,6 +148,15 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
 
     egui::CentralPanel::default().show(ctx, |ui| {
         let panel_rect = ui.max_rect();
+        if let Some(err) = app.ui.ui_error.as_ref() {
+            ui.group(|ui| {
+                ui.colored_label(egui::Color32::from_rgb(220, 80, 80), err);
+                if ui.small_button("Dismiss").clicked() {
+                    app.ui.ui_error = None;
+                }
+            });
+            ui.add_space(6.0);
+        }
         let scroll_output = egui::ScrollArea::vertical()
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
