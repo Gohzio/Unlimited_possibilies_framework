@@ -2,7 +2,7 @@ use eframe::egui;
 use std::sync::mpsc::Sender;
 
 use crate::engine::protocol::EngineCommand;
-use crate::ui::app::{RightTab, UiState};
+use crate::ui::app::{PowerEntry, RightTab, UiState};
 
 /// Draws the right-hand panel for editing Player or World info.
 pub fn draw_right_panel(
@@ -149,7 +149,7 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
 
     ui.collapsing("Powers", |ui| {
         ui.add_enabled_ui(!state.player_locked, |ui| {
-            editable_list(ui, "Powers", &mut c.powers, "Add power");
+            editable_power_list(ui, &mut c.powers, state.player_locked);
         });
     });
 
@@ -573,6 +573,86 @@ fn editable_list(ui: &mut egui::Ui, label: &str, items: &mut Vec<String>, placeh
         }
         ui.data_mut(|d| d.insert_persisted(id, new_item));
     });
+}
+
+fn editable_power_list(ui: &mut egui::Ui, items: &mut Vec<PowerEntry>, player_locked: bool) {
+    let mut remove_index: Option<usize> = None;
+    for i in 0..items.len() {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.add_enabled(
+                    !player_locked && !items[i].locked,
+                    egui::TextEdit::singleline(&mut items[i].name)
+                        .hint_text("Power/skill name"),
+                );
+
+                let lock_label = if items[i].locked { "🔒" } else { "🔓" };
+                if ui
+                    .add_enabled(!player_locked, egui::Button::new(lock_label))
+                    .on_hover_text("Lock/unlock this power")
+                    .clicked()
+                {
+                    items[i].locked = !items[i].locked;
+                }
+
+                if ui
+                    .add_enabled(!player_locked && !items[i].locked, egui::Button::new("❌"))
+                    .clicked()
+                {
+                    remove_index = Some(i);
+                }
+            });
+
+            ui.add_enabled(
+                !player_locked && !items[i].locked,
+                egui::TextEdit::multiline(&mut items[i].description)
+                    .hint_text("Description")
+                    .desired_rows(2),
+            );
+        });
+        ui.add_space(4.0);
+    }
+
+    if let Some(i) = remove_index {
+        items.remove(i);
+    }
+
+    ui.separator();
+    ui.label("Add power/skill:");
+    let name_id = ui.make_persistent_id("powers_new_name");
+    let desc_id = ui.make_persistent_id("powers_new_desc");
+    let mut new_name = ui
+        .data_mut(|d| d.get_persisted::<String>(name_id))
+        .unwrap_or_default();
+    let mut new_desc = ui
+        .data_mut(|d| d.get_persisted::<String>(desc_id))
+        .unwrap_or_default();
+
+    ui.add(egui::TextEdit::singleline(&mut new_name).hint_text("Name"));
+    ui.add(
+        egui::TextEdit::multiline(&mut new_desc)
+            .hint_text("Description")
+            .desired_rows(2),
+    );
+
+    if ui
+        .add_enabled(!player_locked, egui::Button::new("➕"))
+        .clicked()
+    {
+        let name = new_name.trim();
+        if !name.is_empty() {
+            items.push(PowerEntry {
+                name: name.to_string(),
+                description: new_desc.trim().to_string(),
+                locked: false,
+            });
+            new_name.clear();
+            new_desc.clear();
+        }
+    }
+
+    ui.data_mut(|d| d.insert_persisted(name_id, new_name));
+    ui.data_mut(|d| d.insert_persisted(desc_id, new_desc));
 }
 
 fn ensure_skill_tier_names(names: &mut Vec<String>) {

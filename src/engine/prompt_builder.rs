@@ -52,6 +52,7 @@ impl GamePromptBuilder {
         push_time_section(&mut prompt, context);
         push_history_section(&mut prompt, &context.history, "NARRATIVE HISTORY");
         push_current_situation(&mut prompt, context);
+        push_power_use_intent(&mut prompt, player_input);
         push_player_action(&mut prompt, player_input);
         push_game_reminder(&mut prompt, false);
 
@@ -84,6 +85,7 @@ impl GamePromptBuilder {
             push_history_lines(&mut prompt, recent_history);
         }
 
+        push_power_use_intent(&mut prompt, player_input);
         push_player_action(&mut prompt, player_input);
         push_game_reminder(&mut prompt, true);
 
@@ -102,6 +104,7 @@ impl FreeformPromptBuilder {
         push_player_section(&mut prompt, context);
         push_history_section(&mut prompt, &context.history, "NARRATIVE HISTORY");
         push_current_situation(&mut prompt, context);
+        push_power_use_intent(&mut prompt, player_input);
         push_player_action(&mut prompt, player_input);
         push_freeform_reminder(&mut prompt, false);
 
@@ -132,6 +135,7 @@ impl FreeformPromptBuilder {
             push_history_lines(&mut prompt, recent_history);
         }
 
+        push_power_use_intent(&mut prompt, player_input);
         push_player_action(&mut prompt, player_input);
         push_freeform_reminder(&mut prompt, true);
 
@@ -263,6 +267,16 @@ Event Types (JSON array of objects with a \"type\" field):\n\
     );
 
     prompt.push_str(
+        "Power Usage Rules:\n\
+- When the player uses a skill or power, base the result on that power's description and tier.\n\
+- Do not invent effects that contradict or exceed the listed power description.\n\
+- If a power implies sensing, scanning, measuring, or detection, you MUST output a concrete result (e.g., a number, size, distance, temperature) in the narrative.\n\
+- Avoid vague outcomes for power use; the narrative must include a specific effect or result.\n\
+- Do not narrate only the attempt; always include the outcome.\n\
+- If a power is mentioned but not listed, keep the effect minimal and request context if needed.\n\n"
+    );
+
+    prompt.push_str(
         "Factions & Reputation:\n\
 - Track reputations with faction_spawn/faction_update/faction_rep_change.\n\
 - Common factions include caravans, guards, and cities, but new factions can be introduced as needed.\n\n"
@@ -382,6 +396,12 @@ Narrative Rules:\n\
 - Write immersive narration and dialogue.\n\
 - Use explicit speaker tags for every narrative block.\n\
 - Never speak as the player character.\n\n\
+Power Usage Rules:\n\
+- When the player uses a skill or power, base the result on that power's description and tier.\n\
+- Do not invent effects that contradict or exceed the listed power description.\n\
+- If a power implies sensing, scanning, measuring, or detection, you MUST output a concrete result (e.g., a number, size, distance, temperature) in the narrative.\n\
+- Avoid vague outcomes for power use; the narrative must include a specific effect or result.\n\
+- Do not narrate only the attempt; always include the outcome.\n\n\
 Output Format:\n\
 You MUST respond in exactly two sections:\n\n\
 NARRATIVE:\n\
@@ -502,10 +522,37 @@ fn push_player_section(prompt: &mut String, context: &GameContext) {
         prompt.push('\n');
     }
 
-    if !context.player.powers.is_empty() {
+    if let Some(snapshot) = &context.snapshot {
+        if !snapshot.powers.is_empty() {
+            let mut powers = snapshot.powers.clone();
+            powers.sort_by(|a, b| a.name.cmp(&b.name));
+            prompt.push_str("Powers:\n");
+            for p in powers {
+                if p.description.trim().is_empty() {
+                    prompt.push_str(&format!("- {}\n", p.name));
+                } else {
+                    prompt.push_str(&format!("- {}: {}\n", p.name, p.description));
+                }
+            }
+            prompt.push('\n');
+        }
+    }
+
+    if context.snapshot.as_ref().map(|s| s.powers.is_empty()).unwrap_or(true)
+        && !context.player.powers.is_empty()
+    {
         prompt.push_str("Powers:\n");
         for p in &context.player.powers {
-            prompt.push_str(&format!("- {}\n", p));
+            let name = p.name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let desc = p.description.trim();
+            if desc.is_empty() {
+                prompt.push_str(&format!("- {}\n", name));
+            } else {
+                prompt.push_str(&format!("- {}: {}\n", name, desc));
+            }
         }
         prompt.push('\n');
     }
@@ -671,6 +718,42 @@ fn push_current_situation(prompt: &mut String, context: &GameContext) {
         prompt.push_str("The adventure has just begun.\n");
     }
     prompt.push_str("\n\n");
+}
+
+fn push_power_use_intent(prompt: &mut String, player_input: &str) {
+    if let Some(name) = extract_power_use_intent(player_input) {
+        prompt.push_str("POWER USE INTENT:\n");
+        prompt.push_str(&format!("- Player is using power/skill: {}\n", name));
+        prompt.push_str("- You MUST produce a concrete outcome based on this power.\n\n");
+    }
+}
+
+fn extract_power_use_intent(player_input: &str) -> Option<String> {
+    let lower = player_input.to_lowercase();
+    let patterns = ["power of ", "power:", "skill of ", "skill:"];
+    let mut idx = None;
+    let mut pat_len = 0;
+    for pat in patterns {
+        if let Some(pos) = lower.find(pat) {
+            idx = Some(pos);
+            pat_len = pat.len();
+            break;
+        }
+    }
+    let start = idx? + pat_len;
+    if start >= player_input.len() {
+        return None;
+    }
+    let slice = &player_input[start..];
+    let end = slice
+        .find(|c: char| c == '.' || c == '!' || c == '?' || c == '\n')
+        .unwrap_or(slice.len());
+    let name = slice[..end].trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
 }
 
 fn push_player_action(prompt: &mut String, player_input: &str) {

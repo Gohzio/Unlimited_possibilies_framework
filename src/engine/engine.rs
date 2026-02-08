@@ -961,7 +961,7 @@ fn build_requested_context(
                 push_section(&mut out, "EXP", &format_exp(state));
             }
             "powers" => {
-                push_section(&mut out, "POWERS", &format_list(&context.player.powers));
+                push_section(&mut out, "POWERS", &format_powers(state, context));
             }
             "features" => {
                 push_section(&mut out, "FEATURES", &format_list(&context.player.features));
@@ -1281,6 +1281,47 @@ fn format_list(items: &[String]) -> String {
     let mut s = String::new();
     for item in items {
         s.push_str(&format!("- {}\n", item));
+    }
+    s
+}
+
+fn format_powers(
+    state: &InternalGameState,
+    context: &crate::model::game_context::GameContext,
+) -> String {
+    if !state.powers.is_empty() {
+        let mut powers: Vec<_> = state.powers.values().collect();
+        powers.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut s = String::new();
+        for power in powers {
+            if power.description.trim().is_empty() {
+                s.push_str(&format!("- {}\n", power.name));
+            } else {
+                s.push_str(&format!("- {}: {}\n", power.name, power.description));
+            }
+        }
+        return s;
+    }
+
+    format_power_entries(&context.player.powers)
+}
+
+fn format_power_entries(powers: &[crate::ui::app::PowerEntry]) -> String {
+    if powers.is_empty() {
+        return "None\n".to_string();
+    }
+    let mut s = String::new();
+    for power in powers {
+        let name = power.name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let desc = power.description.trim();
+        if desc.is_empty() {
+            s.push_str(&format!("- {}\n", name));
+        } else {
+            s.push_str(&format!("- {}: {}\n", name, desc));
+        }
     }
     s
 }

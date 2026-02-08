@@ -1,6 +1,6 @@
 use eframe::egui;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -167,7 +167,8 @@ pub struct CharacterDefinition {
     pub class: String,
     pub background: String,
     pub stats: HashMap<String, i32>,
-    pub powers: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_power_entries")]
+    pub powers: Vec<PowerEntry>,
     pub features: Vec<String>,
     #[serde(default)]
     pub weapons: Vec<String>,
@@ -176,6 +177,45 @@ pub struct CharacterDefinition {
     pub inventory: Vec<String>,
     #[serde(default)]
     pub clothing: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PowerEntry {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub locked: bool,
+}
+
+fn deserialize_power_entries<'de, D>(deserializer: D) -> Result<Vec<PowerEntry>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum PowerEntryOrString {
+        Name(String),
+        Entry(PowerEntry),
+    }
+
+    let items: Option<Vec<PowerEntryOrString>> = Option::deserialize(deserializer)?;
+    let Some(items) = items else {
+        return Ok(Vec::new());
+    };
+
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        match item {
+            PowerEntryOrString::Name(name) => out.push(PowerEntry {
+                name,
+                ..PowerEntry::default()
+            }),
+            PowerEntryOrString::Entry(entry) => out.push(entry),
+        }
+    }
+
+    Ok(out)
 }
 
 impl Default for CharacterDefinition {
@@ -190,7 +230,11 @@ impl Default for CharacterDefinition {
             class: "Adventurer".into(),
             background: "Describe your character’s origin.".into(),
             stats,
-            powers: vec!["Basic combat training".into()],
+            powers: vec![PowerEntry {
+                name: "Basic combat training".into(),
+                description: String::new(),
+                locked: false,
+            }],
             features: vec![],
             weapons: vec![],
             armor: vec![],
