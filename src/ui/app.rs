@@ -357,6 +357,7 @@ pub struct UiState {
     pub save_full_chat_log: bool,
     pub prompt_history_limit: Option<usize>,
     pub timing_enabled: bool,
+    pub npc_recent_messages_limit: usize,
 
     pub left_tab: LeftTab,
     pub right_tab: RightTab,      // NEW: track which right panel tab is active
@@ -414,6 +415,7 @@ impl Default for UiState {
             save_full_chat_log: false,
             prompt_history_limit: Some(50),
             timing_enabled: true,
+            npc_recent_messages_limit: 10,
 
             left_tab: LeftTab::Party,
             right_tab: RightTab::Player, // NEW: default tab
@@ -480,6 +482,28 @@ impl UiState {
                 self.rendered_messages.drain(0..excess);
             }
         }
+    }
+
+    pub fn trim_messages_after_last_user(&mut self) -> Option<String> {
+        let mut idx = self.rendered_messages.len();
+        while idx > 0 {
+            if matches!(self.rendered_messages[idx - 1], Message::User(_)) {
+                break;
+            }
+            idx -= 1;
+        }
+
+        if idx == 0 {
+            return None;
+        }
+
+        let last_user = match &self.rendered_messages[idx - 1] {
+            Message::User(text) => text.clone(),
+            _ => return None,
+        };
+
+        self.rendered_messages.truncate(idx);
+        Some(last_user)
     }
 }
 
@@ -1250,6 +1274,12 @@ pub struct AppConfig {
     pub prompt_history_limit: Option<usize>,
     #[serde(default = "default_timing_enabled")]
     pub timing_enabled: bool,
+    #[serde(default = "default_npc_recent_messages_limit")]
+    pub npc_recent_messages_limit: usize,
+}
+
+fn default_npc_recent_messages_limit() -> usize {
+    10
 }
 
 impl Default for AppConfig {
@@ -1332,6 +1362,9 @@ impl MyApp {
         load_config(&mut ui);
         let _ = cmd_tx.send(EngineCommand::SetTimingEnabled {
             enabled: ui.timing_enabled,
+        });
+        let _ = cmd_tx.send(EngineCommand::SetNpcRecencyLimit {
+            limit: ui.npc_recent_messages_limit.max(1),
         });
 
         Self { ui, cmd_tx, resp_rx }
@@ -1596,119 +1629,145 @@ fn draw_options_window(
     egui::Window::new("🛠 Options")
         .open(&mut open)
         .show(ctx, |ui| {
-            ui.label("LLM Base URL");
-            let mut llm_changed = ui
-                .add(
-                    egui::TextEdit::singleline(&mut ui_state.llm_base_url)
-                        .hint_text("http://localhost:1234/v1"),
-                )
-                .changed();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.label("LLM Base URL");
+                    let mut llm_changed = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut ui_state.llm_base_url)
+                                .hint_text("http://localhost:1234/v1"),
+                        )
+                        .changed();
 
-            ui.label("LLM Model");
-            llm_changed |= ui
-                .add(
-                    egui::TextEdit::singleline(&mut ui_state.llm_model)
-                        .hint_text("local-model"),
-                )
-                .changed();
+                    ui.label("LLM Model");
+                    llm_changed |= ui
+                        .add(
+                            egui::TextEdit::singleline(&mut ui_state.llm_model)
+                                .hint_text("local-model"),
+                        )
+                        .changed();
 
-            ui.label("LLM API Key (optional)");
-            llm_changed |= ui
-                .add(
-                    egui::TextEdit::singleline(&mut ui_state.llm_api_key)
-                        .password(true)
-                        .hint_text(""),
-                )
-                .changed();
+                    ui.label("LLM API Key (optional)");
+                    llm_changed |= ui
+                        .add(
+                            egui::TextEdit::singleline(&mut ui_state.llm_api_key)
+                                .password(true)
+                                .hint_text(""),
+                        )
+                        .changed();
 
-            ui.add_space(6.0);
-            ui.label("API Mode");
-            llm_changed |= ui
-                .radio_value(&mut ui_state.llm_api_mode, UiLlmApiMode::OpenAiChat, "OpenAI-compatible")
-                .changed();
-            llm_changed |= ui
-                .radio_value(&mut ui_state.llm_api_mode, UiLlmApiMode::KoboldCpp, "KoboldCpp native")
-                .changed();
+                    ui.add_space(6.0);
+                    ui.label("API Mode");
+                    llm_changed |= ui
+                        .radio_value(
+                            &mut ui_state.llm_api_mode,
+                            UiLlmApiMode::OpenAiChat,
+                            "OpenAI-compatible",
+                        )
+                        .changed();
+                    llm_changed |= ui
+                        .radio_value(
+                            &mut ui_state.llm_api_mode,
+                            UiLlmApiMode::KoboldCpp,
+                            "KoboldCpp native",
+                        )
+                        .changed();
 
-            ui.add_space(6.0);
-            ui.label("KoboldCpp Presets");
-            ui.horizontal(|ui| {
-                if ui.button("Use OpenAI-compatible").clicked() {
-                    ui_state.llm_api_mode = UiLlmApiMode::OpenAiChat;
-                    ui_state.llm_base_url = "http://localhost:5001/v1".to_string();
-                    llm_changed = true;
-                }
-                if ui.button("Use KoboldCpp native").clicked() {
-                    ui_state.llm_api_mode = UiLlmApiMode::KoboldCpp;
-                    ui_state.llm_base_url = "http://localhost:5001".to_string();
-                    llm_changed = true;
-                }
-            });
+                    ui.add_space(6.0);
+                    ui.label("KoboldCpp Presets");
+                    ui.horizontal(|ui| {
+                        if ui.button("Use OpenAI-compatible").clicked() {
+                            ui_state.llm_api_mode = UiLlmApiMode::OpenAiChat;
+                            ui_state.llm_base_url = "http://localhost:5001/v1".to_string();
+                            llm_changed = true;
+                        }
+                        if ui.button("Use KoboldCpp native").clicked() {
+                            ui_state.llm_api_mode = UiLlmApiMode::KoboldCpp;
+                            ui_state.llm_base_url = "http://localhost:5001".to_string();
+                            llm_changed = true;
+                        }
+                    });
 
-            ui.add_space(6.0);
-            ui.label("KoboldCpp Connection Protocols");
-            ui.label("OpenAI-compatible: POST /v1/chat/completions");
-            ui.label("KoboldCpp native: POST /api/v1/generate");
-            ui.label("KoboldCpp abort: POST /api/extra/abort");
+                    ui.add_space(6.0);
+                    ui.label("KoboldCpp Connection Protocols");
+                    ui.label("OpenAI-compatible: POST /v1/chat/completions");
+                    ui.label("KoboldCpp native: POST /api/v1/generate");
+                    ui.label("KoboldCpp abort: POST /api/extra/abort");
 
-            if llm_changed {
-                save_config(ui_state);
-            }
+                    if llm_changed {
+                        save_config(ui_state);
+                    }
 
-            if ui.button("🔌 Connect to LLM").clicked() {
-                let _ = cmd_tx.send(EngineCommand::ConnectToLlm {
-                    llm: ui_state.llm_config(),
+                    if ui.button("🔌 Connect to LLM").clicked() {
+                        let _ = cmd_tx.send(EngineCommand::ConnectToLlm {
+                            llm: ui_state.llm_config(),
+                        });
+                    }
+
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.heading("NPC Proximity");
+                    ui.label("Hide NPCs if they haven't spoken in the last N messages.");
+                    let mut npc_limit = ui_state.npc_recent_messages_limit as i32;
+                    if ui
+                        .add(egui::DragValue::new(&mut npc_limit).clamp_range(1..=200))
+                        .changed()
+                    {
+                        ui_state.npc_recent_messages_limit = npc_limit.max(1) as usize;
+                        let _ = cmd_tx.send(EngineCommand::SetNpcRecencyLimit {
+                            limit: ui_state.npc_recent_messages_limit,
+                        });
+                        save_config(ui_state);
+                    }
+
+                    let status_color = if ui_state.llm_connected {
+                        egui::Color32::GREEN
+                    } else {
+                        egui::Color32::RED
+                    };
+
+                    ui.label(egui::RichText::new(&ui_state.llm_status).color(status_color));
+                    ui.separator();
+                    ui.heading("Left Tabs");
+                    let mut tabs_changed = false;
+                    tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.party, "Party").changed();
+                    tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.npcs, "NPCs").changed();
+                    tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.quests, "Quests").changed();
+                    tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.factions, "Factions").changed();
+                    if tabs_changed {
+                        ui_state.ensure_left_tab_visible();
+                    }
+
+                    ui.separator();
+                    ui.heading("Optional Tabs");
+                    ui.label("Tabs unlock when the engine sets a flag like: unlock:slaves");
+
+                    ui.checkbox(&mut ui_state.optional_tabs.slaves.enabled, "Slaves");
+                    ui.checkbox(&mut ui_state.optional_tabs.property.enabled, "Property");
+                    ui.horizontal(|ui| {
+                        ui.checkbox(
+                            &mut ui_state.optional_tabs.bonded_servants.enabled,
+                            "Bonded servants",
+                        );
+                        ui.add_space(6.0);
+                        ui.label("Tab name");
+                        ui.add(
+                            egui::TextEdit::singleline(
+                                &mut ui_state.optional_tabs.bonded_servants_label,
+                            )
+                            .hint_text("Bonded"),
+                        );
+                    });
+                    ui.checkbox(&mut ui_state.optional_tabs.concubines.enabled, "Concubines");
+                    ui.checkbox(&mut ui_state.optional_tabs.harem_members.enabled, "Harem members");
+                    ui.checkbox(&mut ui_state.optional_tabs.prisoners.enabled, "Prisoners");
+                    ui.checkbox(&mut ui_state.optional_tabs.npcs_on_mission.enabled, "NPCs on mission");
+
+                    ui.add_space(6.0);
+                    let status = optional_tabs_status(ui_state);
+                    ui.label(format!("Unlocked: {}", status));
                 });
-            }
-
-            ui.add_space(6.0);
-
-            let status_color = if ui_state.llm_connected {
-                egui::Color32::GREEN
-            } else {
-                egui::Color32::RED
-            };
-
-            ui.label(egui::RichText::new(&ui_state.llm_status).color(status_color));
-            ui.separator();
-            ui.heading("Left Tabs");
-            let mut tabs_changed = false;
-            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.party, "Party").changed();
-            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.npcs, "NPCs").changed();
-            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.quests, "Quests").changed();
-            tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.factions, "Factions").changed();
-            if tabs_changed {
-                ui_state.ensure_left_tab_visible();
-            }
-
-            ui.separator();
-            ui.heading("Optional Tabs");
-            ui.label("Tabs unlock when the engine sets a flag like: unlock:slaves");
-
-            ui.checkbox(&mut ui_state.optional_tabs.slaves.enabled, "Slaves");
-            ui.checkbox(&mut ui_state.optional_tabs.property.enabled, "Property");
-            ui.horizontal(|ui| {
-                ui.checkbox(
-                    &mut ui_state.optional_tabs.bonded_servants.enabled,
-                    "Bonded servants",
-                );
-                ui.add_space(6.0);
-                ui.label("Tab name");
-                ui.add(
-                    egui::TextEdit::singleline(
-                        &mut ui_state.optional_tabs.bonded_servants_label,
-                    )
-                    .hint_text("Bonded"),
-                );
-            });
-            ui.checkbox(&mut ui_state.optional_tabs.concubines.enabled, "Concubines");
-            ui.checkbox(&mut ui_state.optional_tabs.harem_members.enabled, "Harem members");
-            ui.checkbox(&mut ui_state.optional_tabs.prisoners.enabled, "Prisoners");
-            ui.checkbox(&mut ui_state.optional_tabs.npcs_on_mission.enabled, "NPCs on mission");
-
-            ui.add_space(6.0);
-            let status = optional_tabs_status(ui_state);
-            ui.label(format!("Unlocked: {}", status));
         });
 
     ui_state.show_options = open;
@@ -1804,6 +1863,7 @@ pub(crate) fn save_config(ui: &UiState) {
         save_full_chat_log: ui.save_full_chat_log,
         prompt_history_limit: ui.prompt_history_limit,
         timing_enabled: ui.timing_enabled,
+        npc_recent_messages_limit: ui.npc_recent_messages_limit.max(1),
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
         let _ = fs::write(config_path(), json);
@@ -1833,6 +1893,7 @@ fn load_config(ui: &mut UiState) {
             ui.save_full_chat_log = cfg.save_full_chat_log;
             ui.prompt_history_limit = cfg.prompt_history_limit;
             ui.timing_enabled = cfg.timing_enabled;
+            ui.npc_recent_messages_limit = cfg.npc_recent_messages_limit.max(1);
             sanitize_ui_scales(ui);
             ui.apply_chat_log_limit();
         }

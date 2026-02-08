@@ -13,6 +13,12 @@ pub enum EngineCommand {
         context: GameContext,
         llm: LlmConfig,
     },
+    /// UI-driven: regenerate the last LLM response without duplicating the user message
+    RegenerateLastResponse {
+        text: String,
+        context: GameContext,
+        llm: LlmConfig,
+    },
 
     /// Initialize narrative with opening message (world load)
     InitializeNarrative {
@@ -79,6 +85,10 @@ pub enum EngineCommand {
     /// UI-driven: toggle timing debug output
     SetTimingEnabled {
         enabled: bool,
+    },
+    /// UI-driven: set NPC recency window for "nearby" classification
+    SetNpcRecencyLimit {
+        limit: usize,
     },
 
     SaveGame {

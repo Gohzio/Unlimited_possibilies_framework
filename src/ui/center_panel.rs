@@ -278,11 +278,15 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                     ui.add_space(8.0);
                 }
 
-                if let Some(text) = regen_request.take() {
+                if let Some(_text) = regen_request.take() {
+                    let Some(last_user) = app.ui.trim_messages_after_last_user() else {
+                        app.ui.ui_error = Some("No user message to regenerate.".to_string());
+                        continue;
+                    };
                     let context = app.build_game_context();
                     app.ui.is_generating = true;
-                    app.send_command(EngineCommand::SubmitPlayerInput {
-                        text,
+                    app.send_command(EngineCommand::RegenerateLastResponse {
+                        text: last_user,
                         context,
                         llm: app.ui.llm_config(),
                     });

@@ -28,6 +28,7 @@ pub struct Engine {
     messages: Vec<Message>,
     game_state: InternalGameState,
     timing_enabled: bool,
+    npc_recency_limit: usize,
     pending_generation: Option<PendingGeneration>,
 }
 
@@ -60,12 +61,69 @@ impl Engine {
             messages: Vec::new(),
             game_state: InternalGameState::default(),
             timing_enabled: true,
+            npc_recency_limit: 10,
             pending_generation: None,
         }
     }
 
     fn send_ui_error(&self, message: String) {
         let _ = self.tx.send(EngineResponse::UiError { message });
+    }
+
+    fn trim_messages_after_last_user(&mut self) -> Option<String> {
+        let mut idx = self.messages.len();
+        while idx > 0 {
+            if matches!(self.messages[idx - 1], Message::User(_)) {
+                break;
+            }
+            idx -= 1;
+        }
+
+        if idx == 0 {
+            return None;
+        }
+
+        let last_user = match &self.messages[idx - 1] {
+            Message::User(text) => text.clone(),
+            _ => return None,
+        };
+
+        self.messages.truncate(idx);
+        Some(last_user)
+    }
+
+    fn update_npc_proximity_from_recent_messages(&mut self, limit: usize) -> bool {
+        use std::collections::HashSet;
+
+        if self.game_state.npcs.is_empty() {
+            return false;
+        }
+
+        let mut active_names: HashSet<String> = HashSet::new();
+        for msg in self.messages.iter().rev().take(limit) {
+            if let Message::Roleplay {
+                speaker: crate::model::message::RoleplaySpeaker::Npc,
+                text,
+            } = msg
+            {
+                let name = text.splitn(2, ':').next().unwrap_or("").trim();
+                if !name.is_empty() {
+                    active_names.insert(name.to_lowercase());
+                }
+            }
+        }
+
+        let mut changed = false;
+        for npc in self.game_state.npcs.values_mut() {
+            let name_key = npc.name.to_lowercase();
+            let should_be_nearby = active_names.contains(&name_key);
+            if npc.nearby != should_be_nearby {
+                npc.nearby = should_be_nearby;
+                changed = true;
+            }
+        }
+
+        changed
     }
 
 pub fn run(&mut self) {
@@ -215,6 +273,48 @@ pub fn run(&mut self) {
                 let prompt = PromptBuilder::build(&context, &text);
 
                 // 3. Call LM Studio asynchronously
+                let (resp_tx, resp_rx) = std::sync::mpsc::channel();
+                let llm_clone = llm.clone();
+                thread::spawn(move || {
+                    let result = call_llm(prompt, &llm_clone);
+                    let _ = resp_tx.send(result);
+                });
+
+                self.pending_generation = Some(PendingGeneration {
+                    messages_start,
+                    text,
+                    context,
+                    llm,
+                    total_start,
+                    response_rx: resp_rx,
+                    canceled: false,
+                });
+            }
+
+            EngineCommand::RegenerateLastResponse { text, context, llm } => {
+                if self.pending_generation.is_some() {
+                    self.send_ui_error("Generation already in progress.".to_string());
+                    continue;
+                }
+
+                let Some(last_user) = self.trim_messages_after_last_user() else {
+                    self.send_ui_error("No user message to regenerate.".to_string());
+                    continue;
+                };
+
+                if last_user != text {
+                    self.messages.push(Message::System(
+                        "Warning: last user message changed before regeneration.".to_string(),
+                    ));
+                }
+
+                let total_start = Instant::now();
+                let messages_start = self.messages.len();
+                self.game_state.player.exp_multiplier = context.world.exp_multiplier.max(1.0);
+                sync_stats_from_context(&mut self.game_state, &context);
+
+                let prompt = PromptBuilder::build(&context, &text);
+
                 let (resp_tx, resp_rx) = std::sync::mpsc::channel();
                 let llm_clone = llm.clone();
                 thread::spawn(move || {
@@ -420,6 +520,10 @@ pub fn run(&mut self) {
 
             EngineCommand::SetTimingEnabled { enabled } => {
                 self.timing_enabled = enabled;
+            }
+
+            EngineCommand::SetNpcRecencyLimit { limit } => {
+                self.npc_recency_limit = limit.max(1);
             }
 
             /* =========================
@@ -651,17 +755,24 @@ pub fn run(&mut self) {
             let followup_parse_done = Instant::now();
 
             let start_level = self.game_state.player.level;
-            if events.iter().any(|e| matches!(e, NarrativeEvent::RequestContext { .. })) {
-                self.messages.push(Message::System(
-                    "Context was already provided. Please respond with narrative and events."
-                        .to_string(),
-                ));
-                self.send_new_messages_since(messages_start);
-                return;
+            let had_redundant_context = events
+                .iter()
+                .any(|e| matches!(e, NarrativeEvent::RequestContext { .. }));
+            if had_redundant_context {
+                let warning = "LLM requested context again; showing narrative only. Consider regenerating or switching models.";
+                self.messages
+                    .push(Message::System(warning.to_string()));
+                self.send_ui_error(warning.to_string());
             }
+            let events: Vec<_> = events
+                .into_iter()
+                .filter(|e| !matches!(e, NarrativeEvent::RequestContext { .. }))
+                .collect();
 
             let new_messages = parse_narrative(narrative);
             self.messages.extend(new_messages);
+            let proximity_changed =
+                self.update_npc_proximity_from_recent_messages(self.npc_recency_limit);
             let narrative_done = Instant::now();
 
             let mut applications = Vec::new();
@@ -717,7 +828,7 @@ pub fn run(&mut self) {
             );
             let apply_done = Instant::now();
 
-            if !applications.is_empty() {
+            if !applications.is_empty() || proximity_changed {
                 let report = NarrativeApplyReport { applications };
                 let snapshot = (&self.game_state).into();
                 let _ = self.tx.send(
@@ -752,9 +863,11 @@ pub fn run(&mut self) {
         }
 
         // 7. Parse narrative into structured messages
-        let new_messages = parse_narrative(narrative);
-        self.messages.extend(new_messages);
-        let narrative_done = Instant::now();
+            let new_messages = parse_narrative(narrative);
+            self.messages.extend(new_messages);
+            let proximity_changed =
+                self.update_npc_proximity_from_recent_messages(self.npc_recency_limit);
+            let narrative_done = Instant::now();
 
         // 8. Apply events
         let mut applications = Vec::new();
@@ -816,7 +929,7 @@ pub fn run(&mut self) {
         let apply_done = Instant::now();
 
         // 9. Send state mutation report
-        if !applications.is_empty() {
+        if !applications.is_empty() || proximity_changed {
             let report = NarrativeApplyReport { applications };
             let snapshot = (&self.game_state).into();
 
