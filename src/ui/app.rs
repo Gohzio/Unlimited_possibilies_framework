@@ -15,7 +15,7 @@ use super::center_panel::draw_center_panel;
 use super::right_panel::draw_right_panel;
 
 use crate::engine::engine::Engine;
-use crate::engine::llm_client::LlmConfig;
+use crate::engine::llm_client::{LlmApiMode, LlmConfig};
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 
 use crate::model::game_state::GameStateSnapshot;
@@ -307,6 +307,7 @@ pub struct UiState {
     pub llm_base_url: String,
     pub llm_model: String,
     pub llm_api_key: String,
+    pub llm_api_mode: UiLlmApiMode,
     pub ui_error: Option<String>,
     pub chat_log_limit: Option<usize>,
     pub save_full_chat_log: bool,
@@ -363,6 +364,7 @@ impl Default for UiState {
             llm_base_url: "http://localhost:1234/v1".into(),
             llm_model: "local-model".into(),
             llm_api_key: String::new(),
+            llm_api_mode: UiLlmApiMode::OpenAiChat,
             ui_error: None,
             chat_log_limit: None,
             save_full_chat_log: false,
@@ -397,7 +399,10 @@ impl Default for UiState {
 impl UiState {
     pub fn llm_config(&self) -> LlmConfig {
         let base_url = if self.llm_base_url.trim().is_empty() {
-            "http://localhost:1234/v1".to_string()
+            match self.llm_api_mode {
+                UiLlmApiMode::OpenAiChat => "http://localhost:1234/v1".to_string(),
+                UiLlmApiMode::KoboldCpp => "http://localhost:5001".to_string(),
+            }
         } else {
             self.llm_base_url.trim().to_string()
         };
@@ -416,6 +421,10 @@ impl UiState {
                 None
             } else {
                 Some(api_key.to_string())
+            },
+            api_mode: match self.llm_api_mode {
+                UiLlmApiMode::OpenAiChat => LlmApiMode::OpenAiChat,
+                UiLlmApiMode::KoboldCpp => LlmApiMode::KoboldCpp,
             },
         }
     }
@@ -1188,6 +1197,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub llm_api_key: String,
     #[serde(default)]
+    pub llm_api_mode: UiLlmApiMode,
+    #[serde(default)]
     pub chat_log_limit: Option<usize>,
     #[serde(default)]
     pub save_full_chat_log: bool,
@@ -1207,6 +1218,7 @@ impl Default for AppConfig {
             llm_base_url: "http://localhost:1234/v1".into(),
             llm_model: "local-model".into(),
             llm_api_key: String::new(),
+            llm_api_mode: UiLlmApiMode::OpenAiChat,
             chat_log_limit: None,
             save_full_chat_log: false,
             prompt_history_limit: Some(50),
@@ -1224,6 +1236,19 @@ pub struct SerializableColor {
     pub g: u8,
     pub b: u8,
     pub a: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiLlmApiMode {
+    OpenAiChat,
+    KoboldCpp,
+}
+
+impl Default for UiLlmApiMode {
+    fn default() -> Self {
+        Self::OpenAiChat
+    }
 }
 
 impl From<SerializableColor> for egui::Color32 {
@@ -1552,6 +1577,36 @@ fn draw_options_window(
                 )
                 .changed();
 
+            ui.add_space(6.0);
+            ui.label("API Mode");
+            llm_changed |= ui
+                .radio_value(&mut ui_state.llm_api_mode, UiLlmApiMode::OpenAiChat, "OpenAI-compatible")
+                .changed();
+            llm_changed |= ui
+                .radio_value(&mut ui_state.llm_api_mode, UiLlmApiMode::KoboldCpp, "KoboldCpp native")
+                .changed();
+
+            ui.add_space(6.0);
+            ui.label("KoboldCpp Presets");
+            ui.horizontal(|ui| {
+                if ui.button("Use OpenAI-compatible").clicked() {
+                    ui_state.llm_api_mode = UiLlmApiMode::OpenAiChat;
+                    ui_state.llm_base_url = "http://localhost:5001/v1".to_string();
+                    llm_changed = true;
+                }
+                if ui.button("Use KoboldCpp native").clicked() {
+                    ui_state.llm_api_mode = UiLlmApiMode::KoboldCpp;
+                    ui_state.llm_base_url = "http://localhost:5001".to_string();
+                    llm_changed = true;
+                }
+            });
+
+            ui.add_space(6.0);
+            ui.label("KoboldCpp Connection Protocols");
+            ui.label("OpenAI-compatible: POST /v1/chat/completions");
+            ui.label("KoboldCpp native: POST /api/v1/generate");
+            ui.label("KoboldCpp abort: POST /api/extra/abort");
+
             if llm_changed {
                 save_config(ui_state);
             }
@@ -1700,6 +1755,7 @@ pub(crate) fn save_config(ui: &UiState) {
         llm_base_url: ui.llm_base_url.clone(),
         llm_model: ui.llm_model.clone(),
         llm_api_key: ui.llm_api_key.clone(),
+        llm_api_mode: ui.llm_api_mode,
         chat_log_limit: ui.chat_log_limit,
         save_full_chat_log: ui.save_full_chat_log,
         prompt_history_limit: ui.prompt_history_limit,
@@ -1728,6 +1784,7 @@ fn load_config(ui: &mut UiState) {
                 cfg.llm_model
             };
             ui.llm_api_key = cfg.llm_api_key;
+            ui.llm_api_mode = cfg.llm_api_mode;
             ui.chat_log_limit = cfg.chat_log_limit;
             ui.save_full_chat_log = cfg.save_full_chat_log;
             ui.prompt_history_limit = cfg.prompt_history_limit;

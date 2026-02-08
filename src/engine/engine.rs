@@ -5,7 +5,7 @@ use std::thread;
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::engine::prompt_builder::PromptBuilder;
-use crate::engine::llm_client::{call_llm, test_connection};
+use crate::engine::llm_client::{abort_generation, call_llm, test_connection};
 use crate::engine::narrative_parser::parse_narrative;
 
 use crate::model::event_result::{
@@ -238,11 +238,15 @@ pub fn run(&mut self) {
                ========================= */
             EngineCommand::StopGeneration => {
                 if let Some(mut pending) = self.pending_generation.take() {
+                    let llm = pending.llm.clone();
                     if !pending.canceled {
                         pending.canceled = true;
                         self.messages.push(Message::System("Generation stopped.".to_string()));
                         self.send_new_messages_since(pending.messages_start);
                     }
+                    thread::spawn(move || {
+                        let _ = abort_generation(&llm);
+                    });
                 }
             }
 
