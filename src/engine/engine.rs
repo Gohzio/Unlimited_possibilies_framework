@@ -1,5 +1,6 @@
-use std::sync::mpsc::{Receiver, Sender};
-use std::time::Instant;
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, RecvTimeoutError};
+use std::time::{Duration, Instant};
+use std::thread;
 
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
@@ -27,6 +28,7 @@ pub struct Engine {
     messages: Vec<Message>,
     game_state: InternalGameState,
     timing_enabled: bool,
+    pending_generation: Option<PendingGeneration>,
 }
 
 const SAVE_VERSION: u32 = 4;
@@ -35,6 +37,16 @@ const SAVE_VERSION: u32 = 4;
 enum QuestOfferSource {
     World,
     Npc,
+}
+
+struct PendingGeneration {
+    messages_start: usize,
+    text: String,
+    context: crate::model::game_context::GameContext,
+    llm: crate::engine::llm_client::LlmConfig,
+    total_start: Instant,
+    response_rx: Receiver<anyhow::Result<String>>,
+    canceled: bool,
 }
 
 impl Engine {
@@ -48,6 +60,7 @@ impl Engine {
             messages: Vec::new(),
             game_state: InternalGameState::default(),
             timing_enabled: true,
+            pending_generation: None,
         }
     }
 
@@ -56,7 +69,56 @@ impl Engine {
     }
 
 pub fn run(&mut self) {
-    while let Ok(cmd) = self.rx.recv() {
+    loop {
+        let mut cmd_opt: Option<EngineCommand> = None;
+        if self.pending_generation.is_some() {
+            match self.rx.try_recv() {
+                Ok(cmd) => cmd_opt = Some(cmd),
+                Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+
+        if cmd_opt.is_none() {
+            if let Some(pending) = &mut self.pending_generation {
+                match pending.response_rx.try_recv() {
+                    Ok(result) => {
+                        let pending = self.pending_generation.take().expect("pending generation");
+                        self.handle_llm_result(pending, result);
+                        continue;
+                    }
+                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Disconnected) => {
+                        let pending = self.pending_generation.take().expect("pending generation");
+                        self.handle_llm_result(
+                            pending,
+                            Err(anyhow::anyhow!("LLM generation thread disconnected")),
+                        );
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let cmd = if let Some(cmd) = cmd_opt {
+            Some(cmd)
+        } else if self.pending_generation.is_some() {
+            match self.rx.recv_timeout(Duration::from_millis(50)) {
+                Ok(cmd) => Some(cmd),
+                Err(RecvTimeoutError::Timeout) => None,
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+        } else {
+            match self.rx.recv() {
+                Ok(cmd) => Some(cmd),
+                Err(_) => break,
+            }
+        };
+
+        let Some(cmd) = cmd else {
+            continue;
+        };
+
         match cmd {
 
             /* =========================
@@ -83,6 +145,10 @@ pub fn run(&mut self) {
                Player input → Prompt → LLM
                ========================= */
             EngineCommand::SubmitPlayerInput { text, context, llm } => {
+                if self.pending_generation.is_some() {
+                    self.send_ui_error("Generation already in progress.".to_string());
+                    continue;
+                }
                 let total_start = Instant::now();
                 let messages_start = self.messages.len();
                 self.game_state.player.exp_multiplier = context.world.exp_multiplier.max(1.0);
@@ -148,289 +214,36 @@ pub fn run(&mut self) {
                 // 2. Build prompt
                 let prompt = PromptBuilder::build(&context, &text);
 
-                // 3. Call LM Studio
-                let llm_output = match call_llm(prompt, &llm) {
-                    Ok(text) => text,
-                    Err(e) => {
-                        self.messages.push(Message::System(format!(
-                            "LLM error: {}",
-                            e
-                        )));
-                        self.send_ui_error(format!("LLM error: {}", e));
-                        self.send_new_messages_since(messages_start);
-                        continue;
+                // 3. Call LM Studio asynchronously
+                let (resp_tx, resp_rx) = std::sync::mpsc::channel();
+                let llm_clone = llm.clone();
+                thread::spawn(move || {
+                    let result = call_llm(prompt, &llm_clone);
+                    let _ = resp_tx.send(result);
+                });
+
+                self.pending_generation = Some(PendingGeneration {
+                    messages_start,
+                    text,
+                    context,
+                    llm,
+                    total_start,
+                    response_rx: resp_rx,
+                    canceled: false,
+                });
+            }
+
+            /* =========================
+               UI: Stop generation
+               ========================= */
+            EngineCommand::StopGeneration => {
+                if let Some(mut pending) = self.pending_generation.take() {
+                    if !pending.canceled {
+                        pending.canceled = true;
+                        self.messages.push(Message::System("Generation stopped.".to_string()));
+                        self.send_new_messages_since(pending.messages_start);
                     }
-                };
-
-                // 4. Split NARRATIVE vs EVENTS
-                let (narrative, events_json) =
-                    llm_output
-                        .split_once("EVENTS:")
-                        .unwrap_or((&llm_output, "[]"));
-                let split_done = Instant::now();
-
-                // 5. Decode EVENTS JSON
-                let events = match crate::model::llm_decode::decode_llm_events(events_json) {
-                    Ok(events) => events,
-                    Err(err) => {
-                        self.messages.push(Message::System(format!(
-                            "Failed to parse EVENTS: {}",
-                            err
-                        )));
-                        self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
-                        Vec::new()
-                    }
-                };
-                let parse_done = Instant::now();
-
-                // 6. Handle request_context (one additional round)
-                if let Some(topics) = collect_requested_topics(&events) {
-                    let followup_start = Instant::now();
-                    let requested_context = build_requested_context(
-                        &self.game_state,
-                        &context,
-                        &topics,
-                    );
-                    let recent_history = tail_messages(&self.messages, 5);
-                    let followup_prompt = PromptBuilder::build_with_requested_context(
-                        &context,
-                        &text,
-                        &requested_context,
-                        &recent_history,
-                    );
-                    let llm_output = match call_llm(followup_prompt, &llm) {
-                        Ok(text) => text,
-                        Err(e) => {
-                            self.messages.push(Message::System(format!(
-                                "LLM error: {}",
-                                e
-                            )));
-                            self.send_ui_error(format!("LLM error: {}", e));
-                            self.send_new_messages_since(messages_start);
-                            continue;
-                        }
-                    };
-
-                    let (narrative, events_json) =
-                        llm_output
-                            .split_once("EVENTS:")
-                            .unwrap_or((&llm_output, "[]"));
-                    let followup_split_done = Instant::now();
-                    let events = match crate::model::llm_decode::decode_llm_events(events_json) {
-                        Ok(events) => events,
-                        Err(err) => {
-                            self.messages.push(Message::System(format!(
-                                "Failed to parse EVENTS: {}",
-                                err
-                            )));
-                            self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
-                            Vec::new()
-                        }
-                    };
-                    let followup_parse_done = Instant::now();
-
-                    let start_level = self.game_state.player.level;
-                    if events.iter().any(|e| matches!(e, NarrativeEvent::RequestContext { .. })) {
-                        self.messages.push(Message::System(
-                            "Context was already provided. Please respond with narrative and events."
-                                .to_string(),
-                        ));
-                        self.send_new_messages_since(messages_start);
-                        continue;
-                    }
-
-                    let new_messages = parse_narrative(narrative);
-                    self.messages.extend(new_messages);
-                    let narrative_done = Instant::now();
-
-                    let mut applications = Vec::new();
-                    let offer_source = quest_offer_source(narrative);
-                    let player_accepts = player_accepts_quest(&text);
-                    for event in events {
-                        if let NarrativeEvent::StartQuest { .. } = event {
-                            if let Some(reason) =
-                                validate_start_quest(&event, offer_source, player_accepts, &context.world)
-                            {
-                                applications.push(EventApplication {
-                                    event,
-                                    outcome: EventApplyOutcome::Deferred { reason },
-                                });
-                                continue;
-                            }
-                        }
-                        if let NarrativeEvent::PartyUpdate { .. } = event {
-                            if !player_requested_party_details(&text) {
-                                applications.push(EventApplication {
-                                    event,
-                                    outcome: EventApplyOutcome::Deferred {
-                                        reason: "Party update ignored: player did not request details.".to_string(),
-                                    },
-                                });
-                                continue;
-                            }
-                            let sanitized = sanitize_party_update(&event);
-                            let outcome = apply_event(&mut self.game_state, sanitized.clone());
-                            applications.push(EventApplication {
-                                event: sanitized,
-                                outcome,
-                            });
-                            continue;
-                        }
-                        let outcome = apply_event(&mut self.game_state, event.clone());
-                        applications.push(EventApplication { event, outcome });
-                    }
-
-                    maybe_grant_repetition_power(
-                        &mut self.game_state,
-                        &text,
-                        &context.world,
-                        &mut applications,
-                    );
-                    maybe_evolve_powers(&mut self.game_state, &context.world, &mut applications);
-                    apply_set_bonuses(&mut self.game_state, &mut applications);
-                    apply_level_stat_growth(
-                        &mut self.game_state,
-                        &context,
-                        start_level,
-                        &mut applications,
-                    );
-                    let apply_done = Instant::now();
-
-                    if !applications.is_empty() {
-                        let report = NarrativeApplyReport { applications };
-                        let snapshot = (&self.game_state).into();
-                        let _ = self.tx.send(
-                            EngineResponse::NarrativeApplied { report, snapshot }
-                        );
-                        let snapshot_done = Instant::now();
-                        self.emit_timing(
-                            "followup",
-                            total_start,
-                            split_done,
-                            parse_done,
-                            narrative_done,
-                            apply_done,
-                            snapshot_done,
-                            Some((followup_start, followup_split_done, followup_parse_done)),
-                        );
-                    } else {
-                        self.emit_timing(
-                            "followup",
-                            total_start,
-                            split_done,
-                            parse_done,
-                            narrative_done,
-                            apply_done,
-                            Instant::now(),
-                            Some((followup_start, followup_split_done, followup_parse_done)),
-                        );
-                    }
-
-                    self.send_new_messages_since(messages_start);
-                    continue;
                 }
-
-                // 7. Parse narrative into structured messages
-                let new_messages = parse_narrative(narrative);
-                self.messages.extend(new_messages);
-                let narrative_done = Instant::now();
-
-                // 8. Apply events
-                let mut applications = Vec::new();
-                let offer_source = quest_offer_source(narrative);
-                let player_accepts = player_accepts_quest(&text);
-                let start_level = self.game_state.player.level;
-
-                for event in events {
-                    if let NarrativeEvent::StartQuest { .. } = event {
-                        if let Some(reason) =
-                            validate_start_quest(&event, offer_source, player_accepts, &context.world)
-                        {
-                            applications.push(EventApplication {
-                                event,
-                                outcome: EventApplyOutcome::Deferred { reason },
-                            });
-                            continue;
-                        }
-                    }
-                    if let NarrativeEvent::PartyUpdate { .. } = event {
-                        if !player_requested_party_details(&text) {
-                            applications.push(EventApplication {
-                                event,
-                                outcome: EventApplyOutcome::Deferred {
-                                    reason: "Party update ignored: player did not request details.".to_string(),
-                                },
-                            });
-                            continue;
-                        }
-                        let sanitized = sanitize_party_update(&event);
-                        let outcome = apply_event(&mut self.game_state, sanitized.clone());
-                        applications.push(EventApplication {
-                            event: sanitized,
-                            outcome,
-                        });
-                        continue;
-                    }
-                    let outcome = apply_event(&mut self.game_state, event.clone());
-                    applications.push(EventApplication {
-                        event,
-                        outcome,
-                    });
-                }
-
-                maybe_grant_repetition_power(
-                    &mut self.game_state,
-                    &text,
-                    &context.world,
-                    &mut applications,
-                );
-                maybe_evolve_powers(&mut self.game_state, &context.world, &mut applications);
-                apply_set_bonuses(&mut self.game_state, &mut applications);
-                apply_level_stat_growth(
-                    &mut self.game_state,
-                    &context,
-                    start_level,
-                    &mut applications,
-                );
-                let apply_done = Instant::now();
-
-                // 9. Send state mutation report
-                if !applications.is_empty() {
-                    let report = NarrativeApplyReport { applications };
-                    let snapshot = (&self.game_state).into();
-
-                    let _ = self.tx.send(
-                        EngineResponse::NarrativeApplied {
-                            report,
-                            snapshot,
-                        }
-                    );
-                    let snapshot_done = Instant::now();
-                    self.emit_timing(
-                        "primary",
-                        total_start,
-                        split_done,
-                        parse_done,
-                        narrative_done,
-                        apply_done,
-                        snapshot_done,
-                        None,
-                    );
-                } else {
-                    self.emit_timing(
-                        "primary",
-                        total_start,
-                        split_done,
-                        parse_done,
-                        narrative_done,
-                        apply_done,
-                        Instant::now(),
-                        None,
-                    );
-                }
-
-                // 10. Update UI with full history
-                self.send_new_messages_since(messages_start);
             }
 
             /* =========================
@@ -469,6 +282,33 @@ pub fn run(&mut self) {
                     clothing: None,
                     weapons: None,
                     armor: None,
+                };
+
+                let outcome = apply_event(&mut self.game_state, event.clone());
+                let report = NarrativeApplyReport {
+                    applications: vec![EventApplication { event, outcome }],
+                };
+                let snapshot = (&self.game_state).into();
+
+                let _ = self.tx.send(
+                    EngineResponse::NarrativeApplied { report, snapshot }
+                );
+            }
+
+            /* =========================
+               UI: Create NPC
+               ========================= */
+            EngineCommand::CreateNpc { name, role, details } => {
+                let details = if details.trim().is_empty() {
+                    None
+                } else {
+                    Some(details)
+                };
+                let event = crate::model::narrative_event::NarrativeEvent::NpcSpawn {
+                    id: None,
+                    name,
+                    role,
+                    details,
                 };
 
                 let outcome = apply_event(&mut self.game_state, event.clone());
@@ -666,14 +506,14 @@ pub fn run(&mut self) {
 
     fn emit_timing(
         &mut self,
-    tag: &str,
-    total_start: Instant,
-    split_done: Instant,
-    parse_done: Instant,
-    narrative_done: Instant,
-    apply_done: Instant,
-    snapshot_done: Instant,
-    followup: Option<(Instant, Instant, Instant)>,
+        tag: &str,
+        total_start: Instant,
+        split_done: Instant,
+        parse_done: Instant,
+        narrative_done: Instant,
+        apply_done: Instant,
+        snapshot_done: Instant,
+        followup: Option<(Instant, Instant, Instant)>,
     ) {
         if !self.timing_enabled {
             return;
@@ -706,6 +546,308 @@ pub fn run(&mut self) {
         }
 
         self.messages.push(Message::System(msg));
+    }
+
+    fn handle_llm_result(
+        &mut self,
+        pending: PendingGeneration,
+        result: anyhow::Result<String>,
+    ) {
+        if pending.canceled {
+            return;
+        }
+
+        let PendingGeneration {
+            messages_start,
+            text,
+            context,
+            llm,
+            total_start,
+            ..
+        } = pending;
+
+        let llm_output = match result {
+            Ok(text) => text,
+            Err(e) => {
+                self.messages.push(Message::System(format!(
+                    "LLM error: {}",
+                    e
+                )));
+                self.send_ui_error(format!("LLM error: {}", e));
+                self.send_new_messages_since(messages_start);
+                return;
+            }
+        };
+
+        // 4. Split NARRATIVE vs EVENTS
+        let (narrative, events_json) =
+            llm_output
+                .split_once("EVENTS:")
+                .unwrap_or((&llm_output, "[]"));
+        let split_done = Instant::now();
+
+        // 5. Decode EVENTS JSON
+        let events = match crate::model::llm_decode::decode_llm_events(events_json) {
+            Ok(events) => events,
+            Err(err) => {
+                self.messages.push(Message::System(format!(
+                    "Failed to parse EVENTS: {}",
+                    err
+                )));
+                self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
+                Vec::new()
+            }
+        };
+        let parse_done = Instant::now();
+
+        // 6. Handle request_context (one additional round)
+        if let Some(topics) = collect_requested_topics(&events) {
+            let followup_start = Instant::now();
+            let requested_context = build_requested_context(
+                &self.game_state,
+                &context,
+                &topics,
+            );
+            let recent_history = tail_messages(&self.messages, 5);
+            let followup_prompt = PromptBuilder::build_with_requested_context(
+                &context,
+                &text,
+                &requested_context,
+                &recent_history,
+            );
+            let llm_output = match call_llm(followup_prompt, &llm) {
+                Ok(text) => text,
+                Err(e) => {
+                    self.messages.push(Message::System(format!(
+                        "LLM error: {}",
+                        e
+                    )));
+                    self.send_ui_error(format!("LLM error: {}", e));
+                    self.send_new_messages_since(messages_start);
+                    return;
+                }
+            };
+
+            let (narrative, events_json) =
+                llm_output
+                    .split_once("EVENTS:")
+                    .unwrap_or((&llm_output, "[]"));
+            let followup_split_done = Instant::now();
+            let events = match crate::model::llm_decode::decode_llm_events(events_json) {
+                Ok(events) => events,
+                Err(err) => {
+                    self.messages.push(Message::System(format!(
+                        "Failed to parse EVENTS: {}",
+                        err
+                    )));
+                    self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
+                    Vec::new()
+                }
+            };
+            let followup_parse_done = Instant::now();
+
+            let start_level = self.game_state.player.level;
+            if events.iter().any(|e| matches!(e, NarrativeEvent::RequestContext { .. })) {
+                self.messages.push(Message::System(
+                    "Context was already provided. Please respond with narrative and events."
+                        .to_string(),
+                ));
+                self.send_new_messages_since(messages_start);
+                return;
+            }
+
+            let new_messages = parse_narrative(narrative);
+            self.messages.extend(new_messages);
+            let narrative_done = Instant::now();
+
+            let mut applications = Vec::new();
+            let offer_source = quest_offer_source(narrative);
+            let player_accepts = player_accepts_quest(&text);
+            for event in events {
+                if let NarrativeEvent::StartQuest { .. } = event {
+                    if let Some(reason) =
+                        validate_start_quest(&event, offer_source, player_accepts, &context.world)
+                    {
+                        applications.push(EventApplication {
+                            event,
+                            outcome: EventApplyOutcome::Deferred { reason },
+                        });
+                        continue;
+                    }
+                }
+                if let NarrativeEvent::PartyUpdate { .. } = event {
+                    if !player_requested_party_details(&text) {
+                        applications.push(EventApplication {
+                            event,
+                            outcome: EventApplyOutcome::Deferred {
+                                reason: "Party update ignored: player did not request details.".to_string(),
+                            },
+                        });
+                        continue;
+                    }
+                    let sanitized = sanitize_party_update(&event);
+                    let outcome = apply_event(&mut self.game_state, sanitized.clone());
+                    applications.push(EventApplication {
+                        event: sanitized,
+                        outcome,
+                    });
+                    continue;
+                }
+                let outcome = apply_event(&mut self.game_state, event.clone());
+                applications.push(EventApplication { event, outcome });
+            }
+
+            maybe_grant_repetition_power(
+                &mut self.game_state,
+                &text,
+                &context.world,
+                &mut applications,
+            );
+            maybe_evolve_powers(&mut self.game_state, &context.world, &mut applications);
+            apply_set_bonuses(&mut self.game_state, &mut applications);
+            apply_level_stat_growth(
+                &mut self.game_state,
+                &context,
+                start_level,
+                &mut applications,
+            );
+            let apply_done = Instant::now();
+
+            if !applications.is_empty() {
+                let report = NarrativeApplyReport { applications };
+                let snapshot = (&self.game_state).into();
+                let _ = self.tx.send(
+                    EngineResponse::NarrativeApplied { report, snapshot }
+                );
+                let snapshot_done = Instant::now();
+                self.emit_timing(
+                    "followup",
+                    total_start,
+                    split_done,
+                    parse_done,
+                    narrative_done,
+                    apply_done,
+                    snapshot_done,
+                    Some((followup_start, followup_split_done, followup_parse_done)),
+                );
+            } else {
+                self.emit_timing(
+                    "followup",
+                    total_start,
+                    split_done,
+                    parse_done,
+                    narrative_done,
+                    apply_done,
+                    Instant::now(),
+                    Some((followup_start, followup_split_done, followup_parse_done)),
+                );
+            }
+
+            self.send_new_messages_since(messages_start);
+            return;
+        }
+
+        // 7. Parse narrative into structured messages
+        let new_messages = parse_narrative(narrative);
+        self.messages.extend(new_messages);
+        let narrative_done = Instant::now();
+
+        // 8. Apply events
+        let mut applications = Vec::new();
+        let offer_source = quest_offer_source(narrative);
+        let player_accepts = player_accepts_quest(&text);
+        let start_level = self.game_state.player.level;
+
+        for event in events {
+            if let NarrativeEvent::StartQuest { .. } = event {
+                if let Some(reason) =
+                    validate_start_quest(&event, offer_source, player_accepts, &context.world)
+                {
+                    applications.push(EventApplication {
+                        event,
+                        outcome: EventApplyOutcome::Deferred { reason },
+                    });
+                    continue;
+                }
+            }
+            if let NarrativeEvent::PartyUpdate { .. } = event {
+                if !player_requested_party_details(&text) {
+                    applications.push(EventApplication {
+                        event,
+                        outcome: EventApplyOutcome::Deferred {
+                            reason: "Party update ignored: player did not request details.".to_string(),
+                        },
+                    });
+                    continue;
+                }
+                let sanitized = sanitize_party_update(&event);
+                let outcome = apply_event(&mut self.game_state, sanitized.clone());
+                applications.push(EventApplication {
+                    event: sanitized,
+                    outcome,
+                });
+                continue;
+            }
+            let outcome = apply_event(&mut self.game_state, event.clone());
+            applications.push(EventApplication {
+                event,
+                outcome,
+            });
+        }
+
+        maybe_grant_repetition_power(
+            &mut self.game_state,
+            &text,
+            &context.world,
+            &mut applications,
+        );
+        maybe_evolve_powers(&mut self.game_state, &context.world, &mut applications);
+        apply_set_bonuses(&mut self.game_state, &mut applications);
+        apply_level_stat_growth(
+            &mut self.game_state,
+            &context,
+            start_level,
+            &mut applications,
+        );
+        let apply_done = Instant::now();
+
+        // 9. Send state mutation report
+        if !applications.is_empty() {
+            let report = NarrativeApplyReport { applications };
+            let snapshot = (&self.game_state).into();
+
+            let _ = self.tx.send(
+                EngineResponse::NarrativeApplied {
+                    report,
+                    snapshot,
+                }
+            );
+            let snapshot_done = Instant::now();
+            self.emit_timing(
+                "primary",
+                total_start,
+                split_done,
+                parse_done,
+                narrative_done,
+                apply_done,
+                snapshot_done,
+                None,
+            );
+        } else {
+            self.emit_timing(
+                "primary",
+                total_start,
+                split_done,
+                parse_done,
+                narrative_done,
+                apply_done,
+                Instant::now(),
+                None,
+            );
+        }
+
+        // 10. Update UI with full history
+        self.send_new_messages_since(messages_start);
     }
 
     fn send_new_messages_since(&self, start_len: usize) {

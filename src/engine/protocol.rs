@@ -31,6 +31,14 @@ pub enum EngineCommand {
         role: String,
         details: String,
     },
+    /// UI-driven: create a new NPC without LLM involvement
+    CreateNpc {
+        name: String,
+        role: String,
+        details: String,
+    },
+    /// UI-driven: stop the current LLM generation (best effort)
+    StopGeneration,
 
     /// UI-driven: add a party member directly
     AddPartyMember {

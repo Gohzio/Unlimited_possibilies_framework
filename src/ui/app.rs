@@ -321,6 +321,12 @@ pub struct UiState {
     pub new_stat_value: i32,      // NEW: for adding new stats
     pub right_panel_width: f32,
 
+    pub new_npc_name: String,
+    pub new_npc_role: String,
+    pub new_npc_notes: String,
+
+    pub is_generating: bool,
+
     pub character_image: Option<egui::TextureHandle>,
     pub character_image_rgba: Option<Vec<u8>>,
     pub character_image_size: Option<(u32, u32)>,
@@ -370,6 +376,12 @@ impl Default for UiState {
             new_stat_name: String::new(),
             new_stat_value: 10,
             right_panel_width: 340.0,
+
+            new_npc_name: String::new(),
+            new_npc_role: String::new(),
+            new_npc_notes: String::new(),
+
+            is_generating: false,
 
             character_image: None,
             character_image_rgba: None,
@@ -1302,6 +1314,7 @@ impl eframe::App for MyApp {
                     self.ui.apply_chat_log_limit();
                     self.ui.sync_party_from_messages();
                     self.ui.ensure_left_tab_visible();
+                    self.ui.is_generating = false;
                 }
                 EngineResponse::AppendMessages(msgs) => {
                     if !msgs.is_empty() {
@@ -1311,9 +1324,11 @@ impl eframe::App for MyApp {
                         self.ui.sync_party_from_messages();
                         self.ui.ensure_left_tab_visible();
                     }
+                    self.ui.is_generating = false;
                 }
                 EngineResponse::UiError { message } => {
                     self.ui.ui_error = Some(message);
+                    self.ui.is_generating = false;
                 }
                 EngineResponse::NarrativeApplied { report, snapshot } => {
                     self.ui.snapshot = Some(snapshot.clone());
@@ -1327,6 +1342,7 @@ impl eframe::App for MyApp {
                         self.ui.rendered_messages.push(Message::System(t));
                     }
                     self.ui.apply_chat_log_limit();
+                    self.ui.is_generating = false;
                 }
                 EngineResponse::GameLoaded { save, snapshot } => {
                     self.ui.world = save.world;

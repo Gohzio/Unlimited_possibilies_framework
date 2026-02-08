@@ -29,7 +29,7 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                     app.ui.show_settings = true;
                 }
                 if ui
-                    .small_button("↺")
+                    .small_button("⟳")
                     .on_hover_text("Restart chat (keep world/player)")
                     .clicked()
                 {
@@ -70,7 +70,7 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                     app.ui.show_options = true;
                 }
                 if ui
-                    .small_button("🧹")
+                    .small_button("↺")
                     .on_hover_text("Reset everything to defaults")
                     .clicked()
                 {
@@ -123,6 +123,7 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
 
             if !text.is_empty() {
                 let context = app.build_game_context();
+                app.ui.is_generating = true;
                 app.send_command(EngineCommand::SubmitPlayerInput {
                     text,
                     context,
@@ -279,6 +280,7 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
 
                 if let Some(text) = regen_request.take() {
                     let context = app.build_game_context();
+                    app.ui.is_generating = true;
                     app.send_command(EngineCommand::SubmitPlayerInput {
                         text,
                         context,
@@ -325,6 +327,34 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                         .clicked()
                     {
                         app.ui.should_auto_scroll = true;
+                    }
+                });
+        }
+
+        if app.ui.is_generating {
+            let button_size = egui::vec2(64.0, 26.0);
+            let mut button_pos = egui::pos2(
+                panel_rect.left() + 8.0,
+                panel_rect.bottom() - button_size.y - 8.0,
+            );
+            if app.ui.chat_user_scrolled_up && !is_at_bottom {
+                button_pos.y -= 8.0 + 26.0;
+            }
+
+            egui::Area::new(egui::Id::new("stop_generation_button"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(button_pos)
+                .show(ctx, |ui| {
+                    let button = egui::Button::new("Stop")
+                        .corner_radius(egui::CornerRadius::same(255))
+                        .min_size(button_size);
+                    if ui
+                        .add(button)
+                        .on_hover_text("Stop generation")
+                        .clicked()
+                    {
+                        app.ui.is_generating = false;
+                        app.send_command(EngineCommand::StopGeneration);
                     }
                 });
         }

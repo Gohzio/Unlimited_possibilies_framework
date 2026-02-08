@@ -224,6 +224,38 @@ fn draw_local_npcs(
 ) {
     ui.heading("Local NPCs");
 
+    ui.group(|ui| {
+        ui.label("Create NPC");
+
+        ui.label("Name");
+        ui.text_edit_singleline(&mut state.new_npc_name);
+
+        ui.label("Role");
+        ui.text_edit_singleline(&mut state.new_npc_role);
+
+        ui.label("Notes");
+        ui.add(egui::TextEdit::multiline(&mut state.new_npc_notes).desired_rows(3));
+
+        let can_create = !state.new_npc_name.trim().is_empty()
+            && !state.new_npc_role.trim().is_empty();
+        let create_clicked = ui
+            .add_enabled(can_create, egui::Button::new("➕ Create NPC"))
+            .clicked();
+        if create_clicked {
+            let name = state.new_npc_name.trim().to_string();
+            let role = state.new_npc_role.trim().to_string();
+            let details = state.new_npc_notes.trim().to_string();
+
+            let _ = cmd_tx.send(EngineCommand::CreateNpc { name, role, details });
+
+            state.new_npc_name.clear();
+            state.new_npc_role.clear();
+            state.new_npc_notes.clear();
+        }
+    });
+
+    ui.add_space(8.0);
+
     let mut npcs = collect_local_npcs(state);
     npcs.sort_by(|a, b| a.name.cmp(&b.name));
 
