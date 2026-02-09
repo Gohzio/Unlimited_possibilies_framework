@@ -1,11 +1,12 @@
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use std::thread;
+use std::collections::HashSet;
 
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::engine::prompt_builder::PromptBuilder;
-use crate::engine::llm_client::{abort_generation, call_llm, test_connection};
+use crate::engine::llm_client::{abort_generation, call_llm, call_llm_events_structured, test_connection};
 use crate::engine::narrative_parser::parse_narrative;
 
 use crate::model::event_result::{
@@ -28,6 +29,7 @@ pub struct Engine {
     messages: Vec<Message>,
     game_state: InternalGameState,
     timing_enabled: bool,
+    debug_messages_enabled: bool,
     npc_recency_limit: usize,
     pending_generation: Option<PendingGeneration>,
 }
@@ -61,6 +63,7 @@ impl Engine {
             messages: Vec::new(),
             game_state: InternalGameState::default(),
             timing_enabled: true,
+            debug_messages_enabled: true,
             npc_recency_limit: 10,
             pending_generation: None,
         }
@@ -68,6 +71,12 @@ impl Engine {
 
     fn send_ui_error(&self, message: String) {
         let _ = self.tx.send(EngineResponse::UiError { message });
+    }
+
+    fn push_debug_message(&mut self, message: String) {
+        if self.debug_messages_enabled {
+            self.messages.push(Message::System(message));
+        }
     }
 
     fn trim_messages_after_last_user(&mut self) -> Option<String> {
@@ -124,6 +133,35 @@ impl Engine {
         }
 
         changed
+    }
+
+    fn extract_event_types_from_value(value: &serde_json::Value) -> Option<HashSet<String>> {
+        let array = value.as_array()?;
+        let mut out = HashSet::new();
+        for item in array {
+            if let Some(t) = item.get("type").and_then(|v| v.as_str()) {
+                out.insert(t.to_string());
+            }
+        }
+        Some(out)
+    }
+
+    fn extract_event_types(json: &str) -> Option<HashSet<String>> {
+        let value: serde_json::Value = serde_json::from_str(json).ok()?;
+        Self::extract_event_types_from_value(&value)
+    }
+
+    fn should_accept_structured_events(
+        raw_types: Option<HashSet<String>>,
+        structured_types: Option<HashSet<String>>,
+    ) -> bool {
+        let Some(structured) = structured_types else {
+            return false;
+        };
+        match raw_types {
+            Some(raw) if !raw.is_empty() => structured.is_subset(&raw),
+            _ => false,
+        }
     }
 
 pub fn run(&mut self) {
@@ -303,9 +341,9 @@ pub fn run(&mut self) {
                 };
 
                 if last_user != text {
-                    self.messages.push(Message::System(
+                    self.push_debug_message(
                         "Warning: last user message changed before regeneration.".to_string(),
-                    ));
+                    );
                 }
 
                 let total_start = Instant::now();
@@ -522,6 +560,10 @@ pub fn run(&mut self) {
                 self.timing_enabled = enabled;
             }
 
+            EngineCommand::SetDebugMessagesEnabled { enabled } => {
+                self.debug_messages_enabled = enabled;
+            }
+
             EngineCommand::SetNpcRecencyLimit { limit } => {
                 self.npc_recency_limit = limit.max(1);
             }
@@ -694,22 +736,67 @@ pub fn run(&mut self) {
                 .unwrap_or((&llm_output, "[]"));
         let split_done = Instant::now();
 
-        // 5. Decode EVENTS JSON
-        let events = match crate::model::llm_decode::decode_llm_events(events_json) {
-            Ok(events) => events,
-            Err(err) => {
-                self.messages.push(Message::System(format!(
-                    "Failed to parse EVENTS: {}",
-                    err
-                )));
-                self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
-                Vec::new()
+        let use_structured_events =
+            llm.use_structured_events && matches!(llm.api_mode, crate::engine::llm_client::LlmApiMode::OpenAiChat);
+
+        // 5. Decode EVENTS JSON (raw) for request_context detection
+        let raw_events = if use_structured_events {
+            crate::model::llm_decode::decode_llm_events(events_json).unwrap_or_default()
+        } else {
+            match crate::model::llm_decode::decode_llm_events(events_json) {
+                Ok(events) => events,
+                Err(err) => {
+                    self.push_debug_message(format!("Failed to parse EVENTS: {}", err));
+                    self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
+                    Vec::new()
+                }
             }
         };
         let parse_done = Instant::now();
 
+        let structured_events_json = if use_structured_events {
+            let raw_types = Self::extract_event_types(events_json);
+            if events_json.trim().is_empty() || events_json.trim() == "[]" {
+                None
+            } else {
+                match call_llm_events_structured(narrative, events_json, &llm) {
+                    Ok(json) => {
+                        let structured_types = Self::extract_event_types(&json);
+                        if Self::should_accept_structured_events(raw_types, structured_types) {
+                            Some(json)
+                        } else {
+                            let warning = "Structured EVENTS added new event types; using raw EVENTS instead.";
+                            self.push_debug_message(warning.to_string());
+                            self.send_ui_error(warning.to_string());
+                            None
+                        }
+                    }
+                    Err(err) => {
+                        let warning =
+                            format!("Structured EVENTS failed, using raw EVENTS: {}", err);
+                        self.push_debug_message(warning.clone());
+                        self.send_ui_error(warning);
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        let events_json = structured_events_json.as_deref().unwrap_or(events_json);
+
+        let events = match crate::model::llm_decode::decode_llm_events(events_json) {
+            Ok(events) => events,
+            Err(err) => {
+                self.push_debug_message(format!("Failed to parse EVENTS: {}", err));
+                self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
+                Vec::new()
+            }
+        };
+
         // 6. Handle request_context (one additional round)
-        if let Some(topics) = collect_requested_topics(&events) {
+        if let Some(topics) = collect_requested_topics(&raw_events) {
             let followup_start = Instant::now();
             let requested_context = build_requested_context(
                 &self.game_state,
@@ -741,21 +828,62 @@ pub fn run(&mut self) {
                     .split_once("EVENTS:")
                     .unwrap_or((&llm_output, "[]"));
             let followup_split_done = Instant::now();
-            let events = match crate::model::llm_decode::decode_llm_events(events_json) {
-                Ok(events) => events,
-                Err(err) => {
-                    self.messages.push(Message::System(format!(
-                        "Failed to parse EVENTS: {}",
-                        err
-                    )));
-                    self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
-                    Vec::new()
+            let raw_events = if use_structured_events {
+                crate::model::llm_decode::decode_llm_events(events_json).unwrap_or_default()
+            } else {
+                match crate::model::llm_decode::decode_llm_events(events_json) {
+                    Ok(events) => events,
+                    Err(err) => {
+                        self.push_debug_message(format!("Failed to parse EVENTS: {}", err));
+                        self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
+                        Vec::new()
+                    }
                 }
             };
             let followup_parse_done = Instant::now();
 
+            let structured_events_json = if use_structured_events {
+                let raw_types = Self::extract_event_types(events_json);
+                if events_json.trim().is_empty() || events_json.trim() == "[]" {
+                    None
+                } else {
+                    match call_llm_events_structured(narrative, events_json, &llm) {
+                        Ok(json) => {
+                            let structured_types = Self::extract_event_types(&json);
+                            if Self::should_accept_structured_events(raw_types, structured_types) {
+                                Some(json)
+                            } else {
+                                let warning = "Structured EVENTS added new event types; using raw EVENTS instead.";
+                                self.push_debug_message(warning.to_string());
+                                self.send_ui_error(warning.to_string());
+                                None
+                            }
+                        }
+                        Err(err) => {
+                            let warning =
+                                format!("Structured EVENTS failed, using raw EVENTS: {}", err);
+                            self.push_debug_message(warning.clone());
+                            self.send_ui_error(warning);
+                            None
+                        }
+                    }
+                }
+            } else {
+                None
+            };
+
+            let events_json = structured_events_json.as_deref().unwrap_or(events_json);
+            let events = match crate::model::llm_decode::decode_llm_events(events_json) {
+                Ok(events) => events,
+                Err(err) => {
+                    self.push_debug_message(format!("Failed to parse EVENTS: {}", err));
+                    self.send_ui_error(format!("Failed to parse EVENTS: {}", err));
+                    Vec::new()
+                }
+            };
+
             let start_level = self.game_state.player.level;
-            let had_redundant_context = events
+            let had_redundant_context = raw_events
                 .iter()
                 .any(|e| matches!(e, NarrativeEvent::RequestContext { .. }));
             if had_redundant_context {

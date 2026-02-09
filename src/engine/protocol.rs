@@ -86,6 +86,10 @@ pub enum EngineCommand {
     SetTimingEnabled {
         enabled: bool,
     },
+    /// UI-driven: toggle debug system messages
+    SetDebugMessagesEnabled {
+        enabled: bool,
+    },
     /// UI-driven: set NPC recency window for "nearby" classification
     SetNpcRecencyLimit {
         limit: usize,

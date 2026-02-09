@@ -31,6 +31,484 @@ If you want a chat UI with lots of front‑end tooling, SillyTavern is great. If
 - By default this is a local LM Studio server, but if you change the base URL your prompts may be sent off‑device.
 - Prompts can include world data, player info, and recent chat history depending on your settings.
 
+## ✅ Recommended Backend (LM Studio)
+
+LM Studio is the recommended backend for UPF. It is stable, fast, and supports structured output, which improves event reliability.
+
+If you want the best results:
+- Use LM Studio with **OpenAI‑compatible** mode.
+- Enable **structured EVENTS** in the app options.
+- Paste the JSON schema below into LM Studio’s **Structured Output** section.
+
+Where to add the schema in LM Studio:
+1) Open LM Studio and select your model.
+2) Go to the **Developer / OpenAI‑compatible API** page.
+3) In **Structured Output**, choose **JSON Schema**.
+4) Paste the schema below into the schema box.
+5) Save/apply, then enable **Use structured EVENTS** in UPF options.
+
+<details>
+<summary>JSON Schema for EVENTS (copy/paste)</summary>
+
+<div style="max-height: 280px; overflow: auto; border: 1px solid #444; padding: 8px; margin-top: 8px;">
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NarrativeEvents",
+  "type": "array",
+  "items": {
+    "oneOf": [
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "name", "description"],
+        "properties": {
+          "type": { "const": "grant_power" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "description"],
+        "properties": {
+          "type": { "const": "combat" },
+          "description": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "speaker", "text"],
+        "properties": {
+          "type": { "const": "dialogue" },
+          "speaker": { "type": "string" },
+          "text": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "from", "to"],
+        "properties": {
+          "type": { "const": "travel" },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "description"],
+        "properties": {
+          "type": { "const": "rest" },
+          "description": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "recipe"],
+        "properties": {
+          "type": { "const": "craft" },
+          "recipe": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "quality": { "type": "string" },
+          "result": { "type": "string" },
+          "set_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "resource"],
+        "properties": {
+          "type": { "const": "gather" },
+          "resource": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "quality": { "type": "string" },
+          "set_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "name", "role"],
+        "properties": {
+          "type": { "const": "add_party_member" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "party_update" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "details": { "type": "string" },
+          "clothing_add": { "type": "array", "items": { "type": "string" } },
+          "clothing_remove": { "type": "array", "items": { "type": "string" } },
+          "weapons_add": { "type": "array", "items": { "type": "string" } },
+          "weapons_remove": { "type": "array", "items": { "type": "string" } },
+          "armor_add": { "type": "array", "items": { "type": "string" } },
+          "armor_remove": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "section", "id", "name"],
+        "properties": {
+          "type": { "const": "section_card_upsert" },
+          "section": { "type": "string" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "status": { "type": "string" },
+          "details": { "type": "string" },
+          "notes": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "items": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "section", "id"],
+        "properties": {
+          "type": { "const": "section_card_remove" },
+          "section": { "type": "string" },
+          "id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "const": "player_card_update" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "status": { "type": "string" },
+          "details": { "type": "string" },
+          "notes": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "items": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "minutes"],
+        "properties": {
+          "type": { "const": "time_passed" },
+          "minutes": { "type": "integer", "minimum": 1 },
+          "reason": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "name", "role"],
+        "properties": {
+          "type": { "const": "npc_spawn" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "details": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "const": "npc_join_party" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "details": { "type": "string" },
+          "clothing": { "type": "array", "items": { "type": "string" } },
+          "weapons": { "type": "array", "items": { "type": "string" } },
+          "armor": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": { "const": "npc_update" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "role": { "type": "string" },
+          "details": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "npc_despawn" },
+          "id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "npc_leave_party" },
+          "id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "subject_id", "target_id", "delta"],
+        "properties": {
+          "type": { "const": "relationship_change" },
+          "subject_id": { "type": "string" },
+          "target_id": { "type": "string" },
+          "delta": { "type": "integer" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "stat_id", "delta"],
+        "properties": {
+          "type": { "const": "modify_stat" },
+          "stat_id": { "type": "string" },
+          "delta": { "type": "integer" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "amount"],
+        "properties": {
+          "type": { "const": "add_exp" },
+          "amount": { "type": "integer", "minimum": 1 }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "levels"],
+        "properties": {
+          "type": { "const": "level_up" },
+          "levels": { "type": "integer", "minimum": 1 }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "item_id", "slot"],
+        "properties": {
+          "type": { "const": "equip_item" },
+          "item_id": { "type": "string" },
+          "slot": { "type": "string" },
+          "set_id": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "item_id"],
+        "properties": {
+          "type": { "const": "unequip_item" },
+          "item_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "title", "description"],
+        "properties": {
+          "type": { "const": "start_quest" },
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "difficulty": { "type": "string" },
+          "negotiable": { "type": "boolean" },
+          "reward_options": { "type": "array", "items": { "type": "string" } },
+          "rewards": { "type": "array", "items": { "type": "string" } },
+          "sub_quests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "description"],
+              "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "completed": { "type": "boolean" }
+              }
+            }
+          },
+          "declinable": { "type": "boolean" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "update_quest" },
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "status": { "type": "string", "enum": ["active", "completed", "failed"] },
+          "difficulty": { "type": "string" },
+          "negotiable": { "type": "boolean" },
+          "reward_options": { "type": "array", "items": { "type": "string" } },
+          "rewards": { "type": "array", "items": { "type": "string" } },
+          "sub_quests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id"],
+              "properties": {
+                "id": { "type": "string" },
+                "description": { "type": "string" },
+                "completed": { "type": "boolean" }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "topics"],
+        "properties": {
+          "type": { "const": "request_context" },
+          "topics": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "flag"],
+        "properties": {
+          "type": { "const": "set_flag" },
+          "flag": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "reason"],
+        "properties": {
+          "type": { "const": "request_retcon" },
+          "reason": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "item_id", "quantity"],
+        "properties": {
+          "type": { "const": "add_item" },
+          "item_id": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "set_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "item"],
+        "properties": {
+          "type": { "const": "drop" },
+          "item": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "description": { "type": "string" },
+          "set_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "item"],
+        "properties": {
+          "type": { "const": "spawn_loot" },
+          "item": { "type": "string" },
+          "quantity": { "type": "integer" },
+          "description": { "type": "string" },
+          "set_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "currency", "delta"],
+        "properties": {
+          "type": { "const": "currency_change" },
+          "currency": { "type": "string" },
+          "delta": { "type": "integer" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "name"],
+        "properties": {
+          "type": { "const": "faction_spawn" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "faction_update" },
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "kind": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "delta"],
+        "properties": {
+          "type": { "const": "faction_rep_change" },
+          "id": { "type": "string" },
+          "delta": { "type": "integer" }
+        }
+      }
+    ]
+  }
+}
+```
+
+</div>
+</details>
+
 ## Build Instructions (Windows, Linux, macOS)
 
 ### Prerequisites

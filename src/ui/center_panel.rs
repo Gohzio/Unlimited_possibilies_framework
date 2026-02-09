@@ -279,17 +279,17 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
                 }
 
                 if let Some(_text) = regen_request.take() {
-                    let Some(last_user) = app.ui.trim_messages_after_last_user() else {
+                    if let Some(last_user) = app.ui.trim_messages_after_last_user() {
+                        let context = app.build_game_context();
+                        app.ui.is_generating = true;
+                        app.send_command(EngineCommand::RegenerateLastResponse {
+                            text: last_user,
+                            context,
+                            llm: app.ui.llm_config(),
+                        });
+                    } else {
                         app.ui.ui_error = Some("No user message to regenerate.".to_string());
-                        continue;
-                    };
-                    let context = app.build_game_context();
-                    app.ui.is_generating = true;
-                    app.send_command(EngineCommand::RegenerateLastResponse {
-                        text: last_user,
-                        context,
-                        llm: app.ui.llm_config(),
-                    });
+                    }
                 }
 
                 if app.ui.should_auto_scroll {

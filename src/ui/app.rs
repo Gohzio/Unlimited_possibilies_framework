@@ -357,7 +357,9 @@ pub struct UiState {
     pub save_full_chat_log: bool,
     pub prompt_history_limit: Option<usize>,
     pub timing_enabled: bool,
+    pub use_structured_events: bool,
     pub npc_recent_messages_limit: usize,
+    pub debug_messages_enabled: bool,
 
     pub left_tab: LeftTab,
     pub right_tab: RightTab,      // NEW: track which right panel tab is active
@@ -416,6 +418,8 @@ impl Default for UiState {
             prompt_history_limit: Some(50),
             timing_enabled: true,
             npc_recent_messages_limit: 10,
+            use_structured_events: false,
+            debug_messages_enabled: true,
 
             left_tab: LeftTab::Party,
             right_tab: RightTab::Player, // NEW: default tab
@@ -472,6 +476,7 @@ impl UiState {
                 UiLlmApiMode::OpenAiChat => LlmApiMode::OpenAiChat,
                 UiLlmApiMode::KoboldCpp => LlmApiMode::KoboldCpp,
             },
+            use_structured_events: self.use_structured_events,
         }
     }
 
@@ -1276,10 +1281,18 @@ pub struct AppConfig {
     pub timing_enabled: bool,
     #[serde(default = "default_npc_recent_messages_limit")]
     pub npc_recent_messages_limit: usize,
+    #[serde(default)]
+    pub use_structured_events: bool,
+    #[serde(default = "default_debug_messages_enabled")]
+    pub debug_messages_enabled: bool,
 }
 
 fn default_npc_recent_messages_limit() -> usize {
     10
+}
+
+fn default_debug_messages_enabled() -> bool {
+    true
 }
 
 impl Default for AppConfig {
@@ -1297,6 +1310,9 @@ impl Default for AppConfig {
             save_full_chat_log: false,
             prompt_history_limit: Some(50),
             timing_enabled: default_timing_enabled(),
+            npc_recent_messages_limit: default_npc_recent_messages_limit(),
+            use_structured_events: false,
+            debug_messages_enabled: default_debug_messages_enabled(),
         }
     }
 }
@@ -1362,6 +1378,9 @@ impl MyApp {
         load_config(&mut ui);
         let _ = cmd_tx.send(EngineCommand::SetTimingEnabled {
             enabled: ui.timing_enabled,
+        });
+        let _ = cmd_tx.send(EngineCommand::SetDebugMessagesEnabled {
+            enabled: ui.debug_messages_enabled,
         });
         let _ = cmd_tx.send(EngineCommand::SetNpcRecencyLimit {
             limit: ui.npc_recent_messages_limit.max(1),
@@ -1439,9 +1458,11 @@ impl eframe::App for MyApp {
                     self.ui.sync_player_from_snapshot(&snapshot);
                     self.ui.sync_party_from_messages();
                     self.ui.ensure_left_tab_visible();
-                    for a in report.applications {
-                        let t = format!("{:?}", a.outcome);
-                        self.ui.rendered_messages.push(Message::System(t));
+                    if self.ui.debug_messages_enabled {
+                        for a in report.applications {
+                            let t = format!("{:?}", a.outcome);
+                            self.ui.rendered_messages.push(Message::System(t));
+                        }
                     }
                     self.ui.apply_chat_log_limit();
                     self.ui.is_generating = false;
@@ -1582,6 +1603,9 @@ fn draw_settings_window(
             let timing_changed = ui
                 .checkbox(&mut ui_state.timing_enabled, "Show timing debug lines")
                 .changed();
+            let debug_messages_changed = ui
+                .checkbox(&mut ui_state.debug_messages_enabled, "Show debug system messages")
+                .changed();
 
             ui.heading("Speaker Colors");
 
@@ -1598,6 +1622,7 @@ fn draw_settings_window(
                 || save_chat_log_changed
                 || prompt_history_changed
                 || timing_changed
+                || debug_messages_changed
                 || ui.button("Save").clicked()
             {
                 if chat_limit_changed {
@@ -1610,6 +1635,11 @@ fn draw_settings_window(
                 if timing_changed {
                     let _ = cmd_tx.send(EngineCommand::SetTimingEnabled {
                         enabled: ui_state.timing_enabled,
+                    });
+                }
+                if debug_messages_changed {
+                    let _ = cmd_tx.send(EngineCommand::SetDebugMessagesEnabled {
+                        enabled: ui_state.debug_messages_enabled,
                     });
                 }
                 save_config(ui_state);
@@ -1673,6 +1703,12 @@ fn draw_options_window(
                             "KoboldCpp native",
                         )
                         .changed();
+                    llm_changed |= ui
+                        .checkbox(
+                            &mut ui_state.use_structured_events,
+                            "Use structured EVENTS (LM Studio only)",
+                        )
+                        .changed();
 
                     ui.add_space(6.0);
                     ui.label("KoboldCpp Presets");
@@ -1711,7 +1747,7 @@ fn draw_options_window(
                     ui.label("Hide NPCs if they haven't spoken in the last N messages.");
                     let mut npc_limit = ui_state.npc_recent_messages_limit as i32;
                     if ui
-                        .add(egui::DragValue::new(&mut npc_limit).clamp_range(1..=200))
+                        .add(egui::DragValue::new(&mut npc_limit).range(1..=200))
                         .changed()
                     {
                         ui_state.npc_recent_messages_limit = npc_limit.max(1) as usize;
@@ -1864,6 +1900,8 @@ pub(crate) fn save_config(ui: &UiState) {
         prompt_history_limit: ui.prompt_history_limit,
         timing_enabled: ui.timing_enabled,
         npc_recent_messages_limit: ui.npc_recent_messages_limit.max(1),
+        use_structured_events: ui.use_structured_events,
+        debug_messages_enabled: ui.debug_messages_enabled,
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
         let _ = fs::write(config_path(), json);
@@ -1894,6 +1932,8 @@ fn load_config(ui: &mut UiState) {
             ui.prompt_history_limit = cfg.prompt_history_limit;
             ui.timing_enabled = cfg.timing_enabled;
             ui.npc_recent_messages_limit = cfg.npc_recent_messages_limit.max(1);
+            ui.use_structured_events = cfg.use_structured_events;
+            ui.debug_messages_enabled = cfg.debug_messages_enabled;
             sanitize_ui_scales(ui);
             ui.apply_chat_log_limit();
         }
