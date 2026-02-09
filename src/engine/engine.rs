@@ -31,6 +31,9 @@ pub struct Engine {
     timing_enabled: bool,
     debug_messages_enabled: bool,
     npc_recency_limit: usize,
+    turn_index: u64,
+    last_quest_offer_source: Option<QuestOfferSource>,
+    last_quest_offer_turn: Option<u64>,
     pending_generation: Option<PendingGeneration>,
 }
 
@@ -65,6 +68,9 @@ impl Engine {
             timing_enabled: true,
             debug_messages_enabled: true,
             npc_recency_limit: 10,
+            turn_index: 0,
+            last_quest_offer_source: None,
+            last_quest_offer_turn: None,
             pending_generation: None,
         }
     }
@@ -164,6 +170,21 @@ impl Engine {
         }
     }
 
+    fn split_llm_output(llm_output: &str) -> (&str, &str) {
+        if let Some((narrative, events)) = llm_output.split_once("EVENTS:") {
+            return (narrative, events);
+        }
+        let trimmed = llm_output.trim();
+        if trimmed.starts_with('[') || trimmed.starts_with('{') {
+            if let Ok(events) = crate::model::llm_decode::decode_llm_events(trimmed) {
+                if !events.is_empty() || trimmed == "[]" {
+                    return ("", llm_output);
+                }
+            }
+        }
+        (llm_output, "[]")
+    }
+
 pub fn run(&mut self) {
     loop {
         let mut cmd_opt: Option<EngineCommand> = None;
@@ -224,6 +245,9 @@ pub fn run(&mut self) {
                 // Reset session
                 self.messages.clear();
                 self.game_state = InternalGameState::default();
+                self.turn_index = 0;
+                self.last_quest_offer_source = None;
+                self.last_quest_offer_turn = None;
 
                 // Inject narrator opening
                 self.messages.push(Message::Roleplay {
@@ -245,6 +269,7 @@ pub fn run(&mut self) {
                     self.send_ui_error("Generation already in progress.".to_string());
                     continue;
                 }
+                self.turn_index = self.turn_index.saturating_add(1);
                 let total_start = Instant::now();
                 let messages_start = self.messages.len();
                 self.game_state.player.exp_multiplier = context.world.exp_multiplier.max(1.0);
@@ -729,11 +754,10 @@ pub fn run(&mut self) {
             }
         };
 
+        let current_turn = self.turn_index;
+
         // 4. Split NARRATIVE vs EVENTS
-        let (narrative, events_json) =
-            llm_output
-                .split_once("EVENTS:")
-                .unwrap_or((&llm_output, "[]"));
+        let (narrative, events_json) = Self::split_llm_output(&llm_output);
         let split_done = Instant::now();
 
         let use_structured_events =
@@ -823,10 +847,7 @@ pub fn run(&mut self) {
                 }
             };
 
-            let (narrative, events_json) =
-                llm_output
-                    .split_once("EVENTS:")
-                    .unwrap_or((&llm_output, "[]"));
+            let (narrative, events_json) = Self::split_llm_output(&llm_output);
             let followup_split_done = Instant::now();
             let raw_events = if use_structured_events {
                 crate::model::llm_decode::decode_llm_events(events_json).unwrap_or_default()
@@ -905,11 +926,30 @@ pub fn run(&mut self) {
 
             let mut applications = Vec::new();
             let offer_source = quest_offer_source(narrative);
+            if let Some(source) = offer_source {
+                self.last_quest_offer_source = Some(source);
+                self.last_quest_offer_turn = Some(current_turn);
+            }
             let player_accepts = player_accepts_quest(&text);
+            let mut effective_offer_source = offer_source;
+            if effective_offer_source.is_none() && player_accepts {
+                if let (Some(source), Some(turn)) =
+                    (self.last_quest_offer_source, self.last_quest_offer_turn)
+                {
+                    if turn + 1 == current_turn {
+                        effective_offer_source = Some(source);
+                    }
+                }
+            }
             for event in events {
                 if let NarrativeEvent::StartQuest { .. } = event {
                     if let Some(reason) =
-                        validate_start_quest(&event, offer_source, player_accepts, &context.world)
+                        validate_start_quest(
+                            &event,
+                            effective_offer_source,
+                            player_accepts,
+                            &context.world,
+                        )
                     {
                         applications.push(EventApplication {
                             event,
@@ -1000,13 +1040,32 @@ pub fn run(&mut self) {
         // 8. Apply events
         let mut applications = Vec::new();
         let offer_source = quest_offer_source(narrative);
+        if let Some(source) = offer_source {
+            self.last_quest_offer_source = Some(source);
+            self.last_quest_offer_turn = Some(current_turn);
+        }
         let player_accepts = player_accepts_quest(&text);
+        let mut effective_offer_source = offer_source;
+        if effective_offer_source.is_none() && player_accepts {
+            if let (Some(source), Some(turn)) =
+                (self.last_quest_offer_source, self.last_quest_offer_turn)
+            {
+                if turn + 1 == current_turn {
+                    effective_offer_source = Some(source);
+                }
+            }
+        }
         let start_level = self.game_state.player.level;
 
         for event in events {
             if let NarrativeEvent::StartQuest { .. } = event {
                 if let Some(reason) =
-                    validate_start_quest(&event, offer_source, player_accepts, &context.world)
+                    validate_start_quest(
+                        &event,
+                        effective_offer_source,
+                        player_accepts,
+                        &context.world,
+                    )
                 {
                     applications.push(EventApplication {
                         event,

@@ -241,6 +241,7 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - Use section_card_upsert/section_card_remove for left-tab sections: slaves, property, bonded_servants,\n\
   concubines, harem_members, prisoners, npcs_on_mission.\n\
 - Use player_card_update for persistent player narrative details not covered by stats.\n\
+- Do NOT use player_card_update to track quests or quest acceptance; use start_quest/update_quest.\n\
 - Keep ids stable and snake_case.\n\n"
     );
 

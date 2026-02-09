@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
+use std::time::Duration;
 use std::fs;
 use std::fs::File;
 use rfd::FileDialog;
@@ -1497,6 +1498,10 @@ impl eframe::App for MyApp {
         if received_response {
             // Ensure async engine responses are rendered immediately.
             ctx.request_repaint();
+        }
+        if self.ui.is_generating {
+            // Keep polling the engine even when the window isn't focused.
+            ctx.request_repaint_after(Duration::from_millis(100));
         }
 
         draw_left_panel(ctx, &mut self.ui, &self.cmd_tx);

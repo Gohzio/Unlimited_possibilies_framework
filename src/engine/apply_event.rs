@@ -52,6 +52,108 @@ fn find_npc_id_by_name(state: &InternalGameState, name: &str) -> Option<String> 
         })
 }
 
+fn normalize_phrase(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_space = false;
+    for ch in input.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            last_space = false;
+        } else if !last_space {
+            out.push(' ');
+            last_space = true;
+        }
+    }
+    out.trim().to_string()
+}
+
+fn player_card_accepts_quest(status: &str) -> bool {
+    let t = normalize_phrase(status);
+    t.contains("quest accepted") || t.contains("accepted quest")
+}
+
+fn find_quest_id_by_title(state: &InternalGameState, title: &str) -> Option<String> {
+    let needle = title.trim();
+    if needle.is_empty() {
+        return None;
+    }
+    state
+        .quests
+        .iter()
+        .find_map(|(id, quest)| {
+            if quest.title.eq_ignore_ascii_case(needle) {
+                Some(id.clone())
+            } else {
+                None
+            }
+        })
+}
+
+fn generate_unique_quest_id(state: &InternalGameState, title: &str) -> String {
+    let mut base = String::new();
+    let mut last_was_underscore = false;
+    for ch in title.chars() {
+        if ch.is_ascii_alphanumeric() {
+            base.push(ch.to_ascii_lowercase());
+            last_was_underscore = false;
+        } else if !last_was_underscore {
+            base.push('_');
+            last_was_underscore = true;
+        }
+    }
+    let trimmed = base.trim_matches('_');
+    let base_id = if trimmed.is_empty() {
+        "quest".to_string()
+    } else {
+        format!("quest_{}", trimmed)
+    };
+    if !state.quests.contains_key(&base_id) {
+        return base_id;
+    }
+    let mut idx = 2;
+    loop {
+        let candidate = format!("{}_{}", base_id, idx);
+        if !state.quests.contains_key(&candidate) {
+            return candidate;
+        }
+        idx += 1;
+    }
+}
+
+fn upsert_accepted_quests_from_tags(state: &mut InternalGameState, tags: &[String]) {
+    for raw in tags {
+        let title = raw.trim();
+        if title.is_empty() {
+            continue;
+        }
+        if let Some(existing_id) = find_quest_id_by_title(state, title) {
+            if let Some(existing) = state.quests.get_mut(&existing_id) {
+                if existing.status != crate::model::game_state::QuestStatus::Completed {
+                    existing.status = crate::model::game_state::QuestStatus::Active;
+                }
+            }
+            continue;
+        }
+        let id = generate_unique_quest_id(state, title);
+        state.quests.insert(
+            id.clone(),
+            crate::model::game_state::Quest {
+                id,
+                title: title.to_string(),
+                description: String::new(),
+                status: crate::model::game_state::QuestStatus::Active,
+                difficulty: None,
+                negotiable: false,
+                reward_options: Vec::new(),
+                rewards: Vec::new(),
+                sub_quests: Vec::new(),
+                rewards_claimed: false,
+            },
+        );
+    }
+}
+
 fn merge_strings(target: &mut Vec<String>, add: Option<Vec<String>>, remove: Option<Vec<String>>) {
     if let Some(remove) = remove {
         if !remove.is_empty() {
@@ -542,6 +644,15 @@ pub fn apply_event(
             tags,
             items,
         } => {
+            let status_accepts = status
+                .as_deref()
+                .map(player_card_accepts_quest)
+                .unwrap_or(false);
+            let quest_tags = if status_accepts {
+                tags.as_ref().cloned()
+            } else {
+                None
+            };
             let card = state.player_card.get_or_insert(crate::model::game_state::CardEntry {
                 id: "player".to_string(),
                 name: state.player.name.clone(),
@@ -587,6 +698,11 @@ pub fn apply_event(
             }
             if let Some(items) = items {
                 card.items = items.into_iter().filter(|t| !t.trim().is_empty()).collect();
+            }
+            if status_accepts {
+                if let Some(tags) = quest_tags {
+                    upsert_accepted_quests_from_tags(state, &tags);
+                }
             }
             EventApplyOutcome::Applied
         }
@@ -690,6 +806,27 @@ pub fn apply_event(
             sub_quests,
             declinable: _,
         } => {
+            if let Some(existing_id) = find_quest_id_by_title(state, &title) {
+                if let Some(existing) = state.quests.get_mut(&existing_id) {
+                    existing.title = title;
+                    existing.description = description;
+                    existing.status = crate::model::game_state::QuestStatus::Active;
+                    existing.difficulty = difficulty;
+                    if let Some(neg) = negotiable {
+                        existing.negotiable = neg;
+                    }
+                    if let Some(options) = reward_options {
+                        existing.reward_options = options;
+                    }
+                    if let Some(rewards) = rewards {
+                        existing.rewards = rewards;
+                    }
+                    if let Some(sub_quests) = sub_quests {
+                        existing.sub_quests = sub_quests;
+                    }
+                    return EventApplyOutcome::Applied;
+                }
+            }
             if state.quests.contains_key(&id) {
                 return EventApplyOutcome::Rejected {
                     reason: format!("Quest '{}' already exists", id),
