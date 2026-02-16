@@ -98,7 +98,7 @@ pub fn draw_center_panel(ctx: &egui::Context, app: &mut MyApp) {
             let response = ui.add_sized(
                 [text_width.max(0.0), 60.0],
                 egui::TextEdit::multiline(&mut app.ui.input_text)
-                    .id_source(input_id)
+                    .id(input_id)
                     .hint_text("Say something…")
                     .lock_focus(true),
             );
