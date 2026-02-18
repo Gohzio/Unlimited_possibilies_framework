@@ -213,6 +213,51 @@ impl Engine {
         (llm_output, "[]")
     }
 
+    fn retry_if_empty_events_only_output(
+        &mut self,
+        output: String,
+        prompt: String,
+        llm: &crate::engine::llm_client::LlmConfig,
+        stage: &str,
+    ) -> String {
+        if !is_events_only_json_output(&output) {
+            return output;
+        }
+
+        self.push_debug_message(format!(
+            "LLM returned events-only output at {}; retrying once with stricter format reminder.",
+            stage
+        ));
+
+        let retry_prompt = format!(
+            "{}\n\nADDITIONAL REQUIREMENT:\nReturn BOTH sections exactly:\nNARRATIVE:\n<text>\n\nEVENTS:\n<json array>\nDo not return only [] or only JSON.",
+            prompt
+        );
+
+        match call_llm(retry_prompt, llm) {
+            Ok(second) => {
+                if is_events_only_json_output(&second) {
+                    self.push_debug_message(format!(
+                        "Retry still returned events-only output at {}.",
+                        stage
+                    ));
+                    self.send_ui_error(
+                        "Model returned events-only output without narrative. Try again or switch model."
+                            .to_string(),
+                    );
+                }
+                second
+            }
+            Err(err) => {
+                self.push_debug_message(format!(
+                    "Retry after empty events-only output failed at {}: {}",
+                    stage, err
+                ));
+                output
+            }
+        }
+    }
+
     fn apply_event_and_campaign(&mut self, event: NarrativeEvent) -> EventApplyOutcome {
         let outcome = apply_event(&mut self.game_state, event.clone());
         if matches!(outcome, EventApplyOutcome::Applied) && is_campaign_runtime_event(&event) {
@@ -904,7 +949,7 @@ pub fn run(&mut self) {
             ..
         } = pending;
 
-        let llm_output = match result {
+        let mut llm_output = match result {
             Ok(text) => text,
             Err(e) => {
                 self.messages.push(Message::System(format!(
@@ -916,6 +961,13 @@ pub fn run(&mut self) {
                 return;
             }
         };
+        let initial_prompt = PromptBuilder::build(&context, &text);
+        llm_output = self.retry_if_empty_events_only_output(
+            llm_output,
+            initial_prompt,
+            &llm,
+            "initial chat call",
+        );
 
         let current_turn = self.turn_index;
 
@@ -997,7 +1049,7 @@ pub fn run(&mut self) {
                 &requested_context,
                 &recent_history,
             );
-            let llm_output = match call_llm(followup_prompt, &llm) {
+            let llm_output = match call_llm(followup_prompt.clone(), &llm) {
                 Ok(text) => text,
                 Err(e) => {
                     self.messages.push(Message::System(format!(
@@ -1009,6 +1061,12 @@ pub fn run(&mut self) {
                     return;
                 }
             };
+            let llm_output = self.retry_if_empty_events_only_output(
+                llm_output,
+                followup_prompt,
+                &llm,
+                "followup chat call",
+            );
 
             let (narrative, events_json) = Self::split_llm_output(&llm_output);
             let followup_split_done = Instant::now();
@@ -3585,6 +3643,17 @@ fn player_accepts_quest(input: &str) -> bool {
         "okay",
     ];
     phrases.iter().any(|p| t.contains(p))
+}
+
+fn is_events_only_json_output(output: &str) -> bool {
+    let t = output.trim();
+    if t.contains("NARRATIVE:") {
+        return false;
+    }
+    if !(t.starts_with('[') || t.starts_with('{')) {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(t).is_ok()
 }
 
 fn normalize_phrase(input: &str) -> String {

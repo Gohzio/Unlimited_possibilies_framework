@@ -46,17 +46,19 @@ LM Studio is the recommended backend for UPF. It is stable, fast, and supports s
 If you want the best results:
 - Use LM Studio with **OpenAI‑compatible** mode.
 - Enable **structured EVENTS** in the app options.
-- Paste the JSON schema below into LM Studio’s **Structured Output** section.
+- Keep LM Studio **Structured Output** disabled at the global API/model level.
+- Let UPF apply schemas per request (EVENTS normalization + campaign blueprint generation).
 
-Where to add the schema in LM Studio:
+LM Studio API settings:
 1) Open LM Studio and select your model.
 2) Go to the **Developer / OpenAI‑compatible API** page.
-3) In **Structured Output**, choose **JSON Schema**.
-4) Paste the schema below into the schema box.
-5) Save/apply, then enable **Use structured EVENTS** in UPF options.
+3) In **Structured Output**, select **Off / None** (no global schema).
+4) Save/apply, then enable **Use structured EVENTS** in UPF options.
+
+Why: UPF uses different schemas for different requests. A globally forced LM Studio schema can cause empty or invalid outputs in normal chat/campaign flows.
 
 <details>
-<summary>JSON Schema for EVENTS (copy/paste)</summary>
+<summary>JSON Schema for EVENTS (reference / manual fallback)</summary>
 
 <div style="max-height: 280px; overflow: auto; border: 1px solid #444; padding: 8px; margin-top: 8px;">
 
