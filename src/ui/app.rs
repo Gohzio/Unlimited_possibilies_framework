@@ -320,7 +320,7 @@ pub enum RightTab {
     World,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CampaignWizardStep {
     Scope,
     Scale,
@@ -341,7 +341,7 @@ impl CampaignWizardStep {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CampaignWizardState {
     pub step: CampaignWizardStep,
     pub include_timeline: bool,
@@ -1411,6 +1411,8 @@ pub struct AppConfig {
     pub debug_messages_enabled: bool,
     #[serde(default = "default_campaign_mode_enabled")]
     pub campaign_mode_enabled: bool,
+    #[serde(default = "default_campaign_wizard")]
+    pub campaign_wizard: CampaignWizardState,
 }
 
 fn default_npc_recent_messages_limit() -> usize {
@@ -1423,6 +1425,10 @@ fn default_debug_messages_enabled() -> bool {
 
 fn default_campaign_mode_enabled() -> bool {
     true
+}
+
+fn default_campaign_wizard() -> CampaignWizardState {
+    CampaignWizardState::default()
 }
 
 impl Default for AppConfig {
@@ -1444,6 +1450,7 @@ impl Default for AppConfig {
             use_structured_events: false,
             debug_messages_enabled: default_debug_messages_enabled(),
             campaign_mode_enabled: default_campaign_mode_enabled(),
+            campaign_wizard: default_campaign_wizard(),
         }
     }
 }
@@ -1971,6 +1978,7 @@ fn draw_campaign_wizard_window(
     cmd_tx: &mpsc::Sender<EngineCommand>,
 ) {
     let mut open = ui_state.show_campaign_wizard;
+    let wizard_before = ui_state.campaign_wizard.clone();
     let llm_config = ui_state.llm_config();
     let wizard = &mut ui_state.campaign_wizard;
     let mut generate_request: Option<crate::engine::protocol::CampaignGenerationConfig> = None;
@@ -2194,6 +2202,9 @@ fn draw_campaign_wizard_window(
             llm: llm_config,
         });
     }
+    if ui_state.campaign_wizard != wizard_before {
+        save_config(ui_state);
+    }
     ui_state.show_campaign_wizard = open;
 }
 
@@ -2322,6 +2333,7 @@ pub(crate) fn save_config(ui: &UiState) {
         use_structured_events: ui.use_structured_events,
         debug_messages_enabled: ui.debug_messages_enabled,
         campaign_mode_enabled: ui.campaign_mode_enabled,
+        campaign_wizard: ui.campaign_wizard.clone(),
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
         let _ = fs::write(config_path(), json);
@@ -2355,6 +2367,7 @@ fn load_config(ui: &mut UiState) {
             ui.use_structured_events = cfg.use_structured_events;
             ui.debug_messages_enabled = cfg.debug_messages_enabled;
             ui.campaign_mode_enabled = cfg.campaign_mode_enabled;
+            ui.campaign_wizard = cfg.campaign_wizard;
             sanitize_ui_scales(ui);
             ui.apply_chat_log_limit();
         }

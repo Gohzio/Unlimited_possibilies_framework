@@ -2353,11 +2353,12 @@ fn normalize_campaign_blueprint_value(
     value: serde_json::Value,
 ) -> Result<CampaignBlueprint, String> {
     let root = find_blueprint_root(&value);
+    let consistency_notes = get_first_nonempty_string_vec(
+        root,
+        &["consistency_notes", "consistency", "notes", "validation_notes"],
+    );
 
-    let summary = get_string(root, "summary");
-    let consistency_notes = get_string_vec(root, "consistency_notes");
-
-    let timeline = get_array(root, "timeline")
+    let timeline: Vec<CampaignTimelineEntry> = get_array(root, "timeline")
         .into_iter()
         .map(|entry| CampaignTimelineEntry {
             chapter: get_u32(entry, "chapter"),
@@ -2426,6 +2427,8 @@ fn normalize_campaign_blueprint_value(
         })
         .collect();
 
+    let summary = build_campaign_summary(root, &timeline, &consistency_notes);
+
     Ok(CampaignBlueprint {
         summary,
         timeline,
@@ -2457,6 +2460,62 @@ fn get_array<'a>(
         .and_then(|v| v.as_array())
         .map(|items| items.iter().collect())
         .unwrap_or_default()
+}
+
+fn get_first_nonempty_string(obj: &serde_json::Value, keys: &[&str]) -> String {
+    for key in keys {
+        let value = get_string(obj, key);
+        if !value.trim().is_empty() {
+            return value;
+        }
+    }
+    String::new()
+}
+
+fn get_first_nonempty_string_vec(obj: &serde_json::Value, keys: &[&str]) -> Vec<String> {
+    for key in keys {
+        let value = get_string_vec(obj, key);
+        if !value.is_empty() {
+            return value;
+        }
+    }
+    Vec::new()
+}
+
+fn build_campaign_summary(
+    root: &serde_json::Value,
+    timeline: &[CampaignTimelineEntry],
+    consistency_notes: &[String],
+) -> String {
+    let direct = get_first_nonempty_string(
+        root,
+        &[
+            "summary",
+            "overview",
+            "synopsis",
+            "campaign_summary",
+            "description",
+            "premise",
+            "hook",
+        ],
+    );
+    if !direct.trim().is_empty() {
+        return direct;
+    }
+
+    if let Some(first) = timeline.first() {
+        if !first.title.trim().is_empty() {
+            return format!("Campaign opening: {}", first.title.trim());
+        }
+    }
+
+    if let Some(note) = consistency_notes.first() {
+        if !note.trim().is_empty() {
+            return note.trim().to_string();
+        }
+    }
+
+    "Generated campaign".to_string()
 }
 
 fn get_string(obj: &serde_json::Value, key: &str) -> String {
