@@ -5,6 +5,29 @@ use crate::model::game_context::GameContext;
 use crate::model::game_save::GameSave;
 use crate::engine::llm_client::LlmConfig;
 
+#[derive(Debug, Clone)]
+pub struct CampaignGenerationConfig {
+    pub include_timeline: bool,
+    pub include_npcs: bool,
+    pub include_factions: bool,
+    pub include_quest_lines: bool,
+    pub include_world_bosses: bool,
+    pub include_roaming_threats: bool,
+    pub chapters: u32,
+    pub faction_count: u32,
+    pub world_boss_count: u32,
+    pub npc_density: String,
+    pub passes: u32,
+    pub run_consistency_pass: bool,
+    pub core_tone: String,
+    pub narrative_style: String,
+    pub intensity: u32,
+    pub theme_tags: Vec<String>,
+    pub exclude_tags: Vec<String>,
+    pub include_tags: Vec<String>,
+    pub custom_dark_tags: Vec<String>,
+}
+
 #[derive(Debug)]
 pub enum EngineCommand {
     /// Player typed something in the chat box
@@ -93,6 +116,10 @@ pub enum EngineCommand {
     /// UI-driven: set NPC recency window for "nearby" classification
     SetNpcRecencyLimit {
         limit: usize,
+    },
+    GenerateCampaign {
+        config: CampaignGenerationConfig,
+        llm: LlmConfig,
     },
 
     SaveGame {

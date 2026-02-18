@@ -2,7 +2,7 @@
 
 Local-first, stateful, LLM‑driven RPG engine built in Rust + egui.
 
-UPF is for people who want more than a chat UI. It is a narrative engine with explicit game state, events, and rules, so your story doesn’t collapse when context drifts. You get RPG structure (party, quests, inventory, NPCs, factions) without giving up freeform storytelling.
+UPF is for people who want more than a chat UI. It is a narrative engine with explicit game state, events, and rules, so your story doesn’t collapse when context drifts. You get RPG structure (party, quests, inventory, NPCs, factions) with strict engine-side state control.
 
 ## Why you’d want to use this
 
@@ -24,6 +24,14 @@ Key differences:
 - **Developer focus:** UPF is designed for extendable engine logic, not just prompt/character management.
 
 If you want a chat UI with lots of front‑end tooling, SillyTavern is great. If you want a playable, stateful RPG engine that keeps its world consistent, UPF is the better fit.
+
+## RPG Mode
+
+UPF is now RPG-only.
+
+- The previous non-RPG/freeform runtime branch has been removed.
+- Prompt generation always uses the RPG ruleset.
+- World settings no longer include an `is_rpg_world` toggle.
 
 ## 🔒 Privacy & Data
 
@@ -508,6 +516,66 @@ Where to add the schema in LM Studio:
 
 </div>
 </details>
+
+## 🧭 Campaign Generation Wizard
+
+UPF includes an in-app campaign generator wizard that can call your configured LM Studio endpoint.
+
+How to use:
+1) Open **Options**.
+2) Enable **Campaign mode**.
+3) Click **Start Campaign Wizard**.
+4) Configure scope/scale/quality/tone/boundaries.
+5) On Review, click **Generate Campaign via LLM**.
+
+Notes:
+- Generation runs through your current LLM connection settings.
+- Campaign blueprint output is hidden from chat and the player.
+- Validation/save failures surface as UI errors.
+
+## 🗂 Hidden Campaign Storage
+
+Generated campaigns are stored as modular hidden files so the engine can fetch only relevant context.
+
+Layout:
+- `data/campaigns/active_campaign.txt` (current campaign pointer)
+- `data/campaigns/<campaign_id>/manifest.json`
+- `data/campaigns/<campaign_id>/index.json`
+- `data/campaigns/<campaign_id>/state.json`
+- `data/campaigns/<campaign_id>/timeline/chapter_XX.json`
+- `data/campaigns/<campaign_id>/factions/<id>.json`
+- `data/campaigns/<campaign_id>/npcs/<id>.json`
+- `data/campaigns/<campaign_id>/quests/<id>.json`
+- `data/campaigns/<campaign_id>/bosses/<id>.json`
+- `data/campaigns/<campaign_id>/threats/<id>.json`
+- `data/campaigns/<campaign_id>/blueprint_full.json` (full generated blueprint reference)
+
+This lets the engine keep unrevealed campaign data private while still serving targeted context to the LLM.
+
+## 📦 Campaign Context Topics
+
+`request_context` supports campaign-specific topics in addition to existing gameplay topics:
+
+- `campaign`
+- `campaign_manifest`
+- `campaign_state`
+- `campaign_timeline`
+- `campaign_factions`
+- `campaign_npcs`
+- `campaign_quests`
+- `campaign_bosses`
+- `campaign_threats`
+- `campaign_index`
+
+No JSON schema change is required for this because `request_context.topics` already accepts arbitrary strings.
+
+## 📈 Leveling & Stats
+
+Level-up stat growth was updated:
+
+- Context/player stats are now authoritative when syncing into engine state.
+- Usage-based growth now boosts the most-used stat the most at level-up.
+- Custom user-defined stats (for example `lust`) are tracked and can receive usage-based level-up growth when referenced in play.
 
 ## Build Instructions (Windows, Linux, macOS)
 

@@ -8,11 +8,7 @@ pub struct PromptBuilder;
 
 impl PromptBuilder {
     pub fn build(context: &GameContext, player_input: &str) -> String {
-        if context.world.is_rpg_world {
-            GamePromptBuilder::build(context, player_input)
-        } else {
-            FreeformPromptBuilder::build(context, player_input)
-        }
+        GamePromptBuilder::build(context, player_input)
     }
 
     pub fn build_with_requested_context(
@@ -21,21 +17,12 @@ impl PromptBuilder {
         requested_context: &str,
         recent_history: &[Message],
     ) -> String {
-        if context.world.is_rpg_world {
-            GamePromptBuilder::build_with_requested_context(
-                context,
-                player_input,
-                requested_context,
-                recent_history,
-            )
-        } else {
-            FreeformPromptBuilder::build_with_requested_context(
-                context,
-                player_input,
-                requested_context,
-                recent_history,
-            )
-        }
+        GamePromptBuilder::build_with_requested_context(
+            context,
+            player_input,
+            requested_context,
+            recent_history,
+        )
     }
 }
 
@@ -88,56 +75,6 @@ impl GamePromptBuilder {
         push_power_use_intent(&mut prompt, player_input);
         push_player_action(&mut prompt, player_input);
         push_game_reminder(&mut prompt, true);
-
-        prompt
-    }
-}
-
-struct FreeformPromptBuilder;
-
-impl FreeformPromptBuilder {
-    pub fn build(context: &GameContext, player_input: &str) -> String {
-        let mut prompt = String::new();
-
-        push_freeform_system_prompt(&mut prompt);
-        push_world_definition(&mut prompt, context, false);
-        push_player_section(&mut prompt, context);
-        push_history_section(&mut prompt, &context.history, "NARRATIVE HISTORY");
-        push_current_situation(&mut prompt, context);
-        push_power_use_intent(&mut prompt, player_input);
-        push_player_action(&mut prompt, player_input);
-        push_freeform_reminder(&mut prompt, false);
-
-        prompt
-    }
-
-    pub fn build_with_requested_context(
-        context: &GameContext,
-        player_input: &str,
-        requested_context: &str,
-        recent_history: &[Message],
-    ) -> String {
-        let mut prompt = String::new();
-
-        push_freeform_system_prompt(&mut prompt);
-        push_world_definition(&mut prompt, context, false);
-        push_player_section(&mut prompt, context);
-        push_current_situation(&mut prompt, context);
-
-        if !requested_context.trim().is_empty() {
-            prompt.push_str("REQUESTED CONTEXT:\n");
-            prompt.push_str(requested_context);
-            prompt.push_str("\n\n");
-        }
-
-        if !recent_history.is_empty() {
-            prompt.push_str("RECENT HISTORY:\n");
-            push_history_lines(&mut prompt, recent_history);
-        }
-
-        push_power_use_intent(&mut prompt, player_input);
-        push_player_action(&mut prompt, player_input);
-        push_freeform_reminder(&mut prompt, true);
 
         prompt
     }
@@ -290,7 +227,9 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - Common topics: world, loot_rules, player, stats, powers, features, inventory, weapons, armor, clothing,\n\
   currencies, party, quests, npcs, relationships, flags, locations, exp, level, skills, power_evolution,\n\
   equipment, factions, reputation, sets, crafting, gathering, player_card, time,\n\
-  slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission.\n\
+  slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission,\n\
+  campaign, campaign_manifest, campaign_state, campaign_timeline, campaign_factions,\n\
+  campaign_npcs, campaign_quests, campaign_bosses, campaign_threats, campaign_index.\n\
 - Do NOT add narrative when requesting context.\n\n"
     );
 
@@ -306,14 +245,12 @@ Event Types (JSON array of objects with a \"type\" field):\n\
     );
 
     prompt.push_str("Quest Rules:\n");
-    if context.world.is_rpg_world {
-        prompt.push_str(
-            "- This world is an RPG simulation. Only the player knows it; NPCs believe it is real.\n",
-        );
-        prompt.push_str(
-            "- NPCs must follow world rules and formally offer quests with explicit rewards.\n",
-        );
-    }
+    prompt.push_str(
+        "- This world is an RPG simulation. Only the player knows it; NPCs believe it is real.\n",
+    );
+    prompt.push_str(
+        "- NPCs must follow world rules and formally offer quests with explicit rewards.\n",
+    );
     if context.world.world_quests_enabled {
         prompt.push_str("- World quests are ENABLED.\n");
         prompt.push_str(
@@ -386,57 +323,6 @@ EVENTS:\n\
     );
 }
 
-fn push_freeform_system_prompt(prompt: &mut String) {
-    prompt.push_str(
-        "You are the narrator and all non-player characters in a roleplaying game.\n\n\
-Rules:\n\
-- You must never control or describe actions taken by the player beyond what the player explicitly states.\n\
-- All game state changes must be expressed ONLY through structured EVENTS.\n\
-- If no state change is required, output an empty events array.\n\n\
-Narrative Rules:\n\
-- Write immersive narration and dialogue.\n\
-- Use explicit speaker tags for every narrative block.\n\
-- Never speak as the player character.\n\n\
-Power Usage Rules:\n\
-- When the player uses a skill or power, base the result on that power's description and tier.\n\
-- Do not invent effects that contradict or exceed the listed power description.\n\
-- If a power implies sensing, scanning, measuring, or detection, you MUST output a concrete result (e.g., a number, size, distance, temperature) in the narrative.\n\
-- Avoid vague outcomes for power use; the narrative must include a specific effect or result.\n\
-- Do not narrate only the attempt; always include the outcome.\n\n\
-Output Format:\n\
-You MUST respond in exactly two sections:\n\n\
-NARRATIVE:\n\
-<text>\n\n\
-EVENTS:\n\
-<json array>\n\n\
-Do not add explanations, markdown, or extra sections.\n\n\
-Event Types (JSON array of objects with a \"type\" field):\n\
-- combat { description }\n\
-- dialogue { speaker, text }\n\
-- travel { from, to }\n\
-- rest { description }\n\
-- npc_spawn { id?, name, role, details? }\n\
-- npc_update { id?, name?, role?, details? }\n\
-- npc_despawn { id, reason? }\n\
-- relationship_change { subject_id, target_id, delta }\n\
-- set_flag { flag }\n\
-- section_card_upsert { section, id, name, role?, status?, details?, notes?, tags?, items? }\n\
-- section_card_remove { section, id }\n\
-- player_card_update { name?, role?, status?, details?, notes?, tags?, items? }\n\
-- time_passed { minutes, reason? }\n\
-- request_context { topics }\n\n"
-    );
-
-    prompt.push_str(
-        "Request Context:\n\
-- If you need more data, emit request_context { topics: [\"topic1\", \"topic2\"] }\n\
-- You can request location lore with topic \"locations\".\n\
-- Common topics: world, player, player_card, npcs, relationships, flags, locations, party, inventory,\n\
-  time,\n\
-  slaves, property, bonded_servants, concubines, harem_members, prisoners, npcs_on_mission.\n\
-- Do NOT add narrative when requesting context.\n\n"
-    );
-}
 
 fn push_world_definition(prompt: &mut String, context: &GameContext, include_loot_rules: bool) {
     prompt.push_str("WORLD DEFINITION\n");
@@ -503,82 +389,6 @@ fn push_world_definition(prompt: &mut String, context: &GameContext, include_loo
         prompt.push('\n');
         prompt.push_str("Power Evolution:\n");
         prompt.push_str(&power_evolution_rules_text(&context.world));
-        prompt.push('\n');
-    }
-}
-
-fn push_player_section(prompt: &mut String, context: &GameContext) {
-    prompt.push_str("PLAYER CHARACTER:\n");
-    prompt.push_str(&format!("Name: {}\n", context.player.name));
-    prompt.push_str(&format!("Class: {}\n", context.player.class));
-    prompt.push_str("Background:\n");
-    prompt.push_str(&context.player.background);
-    prompt.push_str("\n\n");
-
-    if !context.player.stats.is_empty() {
-        prompt.push_str("Stats:\n");
-        for (k, v) in &context.player.stats {
-            prompt.push_str(&format!("- {}: {}\n", k, v));
-        }
-        prompt.push('\n');
-    }
-
-    if let Some(snapshot) = &context.snapshot {
-        if !snapshot.powers.is_empty() {
-            let mut powers = snapshot.powers.clone();
-            powers.sort_by(|a, b| a.name.cmp(&b.name));
-            prompt.push_str("Powers:\n");
-            for p in powers {
-                if p.description.trim().is_empty() {
-                    prompt.push_str(&format!("- {}\n", p.name));
-                } else {
-                    prompt.push_str(&format!("- {}: {}\n", p.name, p.description));
-                }
-            }
-            prompt.push('\n');
-        }
-    }
-
-    if context.snapshot.as_ref().map(|s| s.powers.is_empty()).unwrap_or(true)
-        && !context.player.powers.is_empty()
-    {
-        prompt.push_str("Powers:\n");
-        for p in &context.player.powers {
-            let name = p.name.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let desc = p.description.trim();
-            if desc.is_empty() {
-                prompt.push_str(&format!("- {}\n", name));
-            } else {
-                prompt.push_str(&format!("- {}: {}\n", name, desc));
-            }
-        }
-        prompt.push('\n');
-    }
-
-    if !context.player.weapons.is_empty() {
-        prompt.push_str("Weapons:\n");
-        for item in &context.player.weapons {
-            prompt.push_str(&format!("- {}\n", item));
-        }
-        prompt.push('\n');
-    }
-
-    if !context.player.armor.is_empty() {
-        prompt.push_str("Armour:\n");
-        for item in &context.player.armor {
-            prompt.push_str(&format!("- {}\n", item));
-        }
-        prompt.push('\n');
-    }
-
-    if !context.player.clothing.is_empty() {
-        prompt.push_str("Clothing:\n");
-        for item in &context.player.clothing {
-            prompt.push_str(&format!("- {}\n", item));
-        }
         prompt.push('\n');
     }
 }
@@ -773,21 +583,6 @@ fn push_game_reminder(prompt: &mut String, followup: bool) {
 - All keys and string values must use double quotes.\n\
 - Example:\n\
   [ { \"type\": \"drop\", \"item\": \"Common Squirrel Fur\", \"quantity\": 1, \"description\": \"The soft fur of a common forest squirrel.\" } ]\n\
-- If no events occur, output: []\n",
-    );
-
-    if followup {
-        prompt.push_str("- Do NOT request more context in this response.\n");
-    }
-}
-
-fn push_freeform_reminder(prompt: &mut String, followup: bool) {
-    prompt.push_str(
-        "REMINDER:\n\
-- Use speaker tags like [NARRATOR], [NPC: Name]\n\
-- Do NOT describe player actions beyond the input.\n\
-- EVENTS must be valid JSON (a JSON array only).\n\
-- All keys and string values must use double quotes.\n\
 - If no events occur, output: []\n",
     );
 

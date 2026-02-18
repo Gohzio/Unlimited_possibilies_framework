@@ -50,8 +50,6 @@ pub struct WorldDefinition {
     pub world_quests_mandatory: bool,
     #[serde(default)]
     pub npc_quests_enabled: bool,
-    #[serde(default)]
-    pub is_rpg_world: bool,
     #[serde(default = "default_exp_multiplier")]
     pub exp_multiplier: f32,
     #[serde(default = "default_repetition_threshold")]
@@ -97,7 +95,6 @@ impl Default for WorldDefinition {
             world_quests_enabled: false,
             world_quests_mandatory: false,
             npc_quests_enabled: false,
-            is_rpg_world: false,
             exp_multiplier: 2.0,
             repetition_threshold: 5,
             repetition_tier_step: 5,
@@ -323,6 +320,126 @@ pub enum RightTab {
     World,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CampaignWizardStep {
+    Scope,
+    Scale,
+    Quality,
+    ToneAndBoundaries,
+    Review,
+}
+
+impl CampaignWizardStep {
+    fn title(self) -> &'static str {
+        match self {
+            CampaignWizardStep::Scope => "Scope",
+            CampaignWizardStep::Scale => "Scale",
+            CampaignWizardStep::Quality => "Quality",
+            CampaignWizardStep::ToneAndBoundaries => "Tone and Boundaries",
+            CampaignWizardStep::Review => "Review",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CampaignWizardState {
+    pub step: CampaignWizardStep,
+    pub include_timeline: bool,
+    pub include_npcs: bool,
+    pub include_factions: bool,
+    pub include_quest_lines: bool,
+    pub include_world_bosses: bool,
+    pub include_roaming_threats: bool,
+    pub chapters: u32,
+    pub faction_count: u32,
+    pub world_boss_count: u32,
+    pub npc_density: u32,
+    pub passes: u32,
+    pub run_consistency_pass: bool,
+    pub core_tone: String,
+    pub narrative_style: String,
+    pub intensity: u32,
+    pub theme_tags: Vec<String>,
+    pub exclude_tags: Vec<String>,
+    pub include_tags: Vec<String>,
+    pub custom_dark_tags: Vec<String>,
+    pub new_theme_tag: String,
+    pub new_exclude_tag: String,
+    pub new_include_tag: String,
+    pub new_custom_dark_tag: String,
+}
+
+impl Default for CampaignWizardState {
+    fn default() -> Self {
+        Self {
+            step: CampaignWizardStep::Scope,
+            include_timeline: true,
+            include_npcs: true,
+            include_factions: true,
+            include_quest_lines: true,
+            include_world_bosses: true,
+            include_roaming_threats: true,
+            chapters: 3,
+            faction_count: 5,
+            world_boss_count: 1,
+            npc_density: 2,
+            passes: 3,
+            run_consistency_pass: true,
+            core_tone: "Grimdark political fantasy".to_string(),
+            narrative_style: "Grounded with mythic spikes".to_string(),
+            intensity: 3,
+            theme_tags: vec![
+                "power struggle".to_string(),
+                "betrayal".to_string(),
+                "ancient secrets".to_string(),
+            ],
+            exclude_tags: vec![
+                "sexual violence".to_string(),
+                "harm to children".to_string(),
+            ],
+            include_tags: vec![
+                "slave trader guild".to_string(),
+                "aristocratic corruption".to_string(),
+            ],
+            custom_dark_tags: Vec::new(),
+            new_theme_tag: String::new(),
+            new_exclude_tag: String::new(),
+            new_include_tag: String::new(),
+            new_custom_dark_tag: String::new(),
+        }
+    }
+}
+
+impl CampaignWizardState {
+    fn to_generation_config(&self) -> crate::engine::protocol::CampaignGenerationConfig {
+        crate::engine::protocol::CampaignGenerationConfig {
+            include_timeline: self.include_timeline,
+            include_npcs: self.include_npcs,
+            include_factions: self.include_factions,
+            include_quest_lines: self.include_quest_lines,
+            include_world_bosses: self.include_world_bosses,
+            include_roaming_threats: self.include_roaming_threats,
+            chapters: self.chapters.max(1),
+            faction_count: self.faction_count.max(1),
+            world_boss_count: self.world_boss_count,
+            npc_density: match self.npc_density {
+                1 => "low".to_string(),
+                2 => "medium".to_string(),
+                _ => "high".to_string(),
+            },
+            passes: self.passes.max(1),
+            run_consistency_pass: self.run_consistency_pass,
+            core_tone: self.core_tone.trim().to_string(),
+            narrative_style: self.narrative_style.trim().to_string(),
+            intensity: self.intensity.clamp(1, 5),
+            theme_tags: self.theme_tags.clone(),
+            exclude_tags: self.exclude_tags.clone(),
+            include_tags: self.include_tags.clone(),
+            custom_dark_tags: self.custom_dark_tags.clone(),
+        }
+    }
+}
+
 /* =========================
    UI State
    ========================= */
@@ -346,6 +463,9 @@ pub struct UiState {
 
     pub show_settings: bool,
     pub show_options: bool,
+    pub show_campaign_wizard: bool,
+    pub campaign_mode_enabled: bool,
+    pub campaign_wizard: CampaignWizardState,
 
     pub llm_connected: bool,
     pub llm_status: String,
@@ -406,6 +526,9 @@ impl Default for UiState {
 
             show_settings: false,
             show_options: false,
+            show_campaign_wizard: false,
+            campaign_mode_enabled: true,
+            campaign_wizard: CampaignWizardState::default(),
 
             llm_connected: false,
             llm_status: "Not connected".into(),
@@ -1286,6 +1409,8 @@ pub struct AppConfig {
     pub use_structured_events: bool,
     #[serde(default = "default_debug_messages_enabled")]
     pub debug_messages_enabled: bool,
+    #[serde(default = "default_campaign_mode_enabled")]
+    pub campaign_mode_enabled: bool,
 }
 
 fn default_npc_recent_messages_limit() -> usize {
@@ -1293,6 +1418,10 @@ fn default_npc_recent_messages_limit() -> usize {
 }
 
 fn default_debug_messages_enabled() -> bool {
+    true
+}
+
+fn default_campaign_mode_enabled() -> bool {
     true
 }
 
@@ -1314,6 +1443,7 @@ impl Default for AppConfig {
             npc_recent_messages_limit: default_npc_recent_messages_limit(),
             use_structured_events: false,
             debug_messages_enabled: default_debug_messages_enabled(),
+            campaign_mode_enabled: default_campaign_mode_enabled(),
         }
     }
 }
@@ -1510,6 +1640,7 @@ impl eframe::App for MyApp {
 
         draw_settings_window(ctx, &mut self.ui, &self.cmd_tx);
         draw_options_window(ctx, &mut self.ui, &self.cmd_tx);
+        draw_campaign_wizard_window(ctx, &mut self.ui, &self.cmd_tx);
     }
 }
 
@@ -1770,6 +1901,26 @@ fn draw_options_window(
 
                     ui.label(egui::RichText::new(&ui_state.llm_status).color(status_color));
                     ui.separator();
+                    ui.heading("Campaign");
+                    let campaign_mode_changed = ui
+                        .checkbox(
+                            &mut ui_state.campaign_mode_enabled,
+                            "Enable campaign mode",
+                        )
+                        .changed();
+                    if ui
+                        .add_enabled(
+                            ui_state.campaign_mode_enabled,
+                            egui::Button::new("Start Campaign Wizard"),
+                        )
+                        .clicked()
+                    {
+                        ui_state.show_campaign_wizard = true;
+                    }
+                    if campaign_mode_changed {
+                        save_config(ui_state);
+                    }
+                    ui.separator();
                     ui.heading("Left Tabs");
                     let mut tabs_changed = false;
                     tabs_changed |= ui.checkbox(&mut ui_state.base_tabs.party, "Party").changed();
@@ -1812,6 +1963,269 @@ fn draw_options_window(
         });
 
     ui_state.show_options = open;
+}
+
+fn draw_campaign_wizard_window(
+    ctx: &egui::Context,
+    ui_state: &mut UiState,
+    cmd_tx: &mpsc::Sender<EngineCommand>,
+) {
+    let mut open = ui_state.show_campaign_wizard;
+    let llm_config = ui_state.llm_config();
+    let wizard = &mut ui_state.campaign_wizard;
+    let mut generate_request: Option<crate::engine::protocol::CampaignGenerationConfig> = None;
+    let mut close_wizard = false;
+
+    egui::Window::new("Campaign Generator Wizard")
+        .open(&mut open)
+        .min_width(540.0)
+        .show(ctx, |ui| {
+            ui.heading(format!("Step: {}", wizard.step.title()));
+            ui.add_space(6.0);
+
+            match wizard.step {
+                CampaignWizardStep::Scope => {
+                    ui.label("Choose what to generate:");
+                    ui.checkbox(&mut wizard.include_timeline, "Timeline");
+                    ui.checkbox(&mut wizard.include_npcs, "NPC network");
+                    ui.checkbox(&mut wizard.include_factions, "Factions and goals");
+                    ui.checkbox(&mut wizard.include_quest_lines, "Quest lines");
+                    ui.checkbox(&mut wizard.include_world_bosses, "World bosses");
+                    ui.checkbox(&mut wizard.include_roaming_threats, "Roaming threats");
+                }
+                CampaignWizardStep::Scale => {
+                    ui.label("Set campaign size:");
+                    ui.horizontal(|ui| {
+                        ui.label("Chapters");
+                        ui.add(egui::DragValue::new(&mut wizard.chapters).range(1..=24));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Factions");
+                        ui.add(egui::DragValue::new(&mut wizard.faction_count).range(1..=20));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("World bosses");
+                        ui.add(egui::DragValue::new(&mut wizard.world_boss_count).range(0..=12));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("NPC density");
+                        egui::ComboBox::from_id_salt("campaign_npc_density")
+                            .selected_text(match wizard.npc_density {
+                                1 => "Low",
+                                2 => "Medium",
+                                _ => "High",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut wizard.npc_density, 1, "Low");
+                                ui.selectable_value(&mut wizard.npc_density, 2, "Medium");
+                                ui.selectable_value(&mut wizard.npc_density, 3, "High");
+                            });
+                    });
+                }
+                CampaignWizardStep::Quality => {
+                    ui.label("Set pass count and validation:");
+                    ui.horizontal(|ui| {
+                        ui.label("Generation passes");
+                        ui.add(egui::DragValue::new(&mut wizard.passes).range(1..=12));
+                    });
+                    ui.checkbox(
+                        &mut wizard.run_consistency_pass,
+                        "Run final consistency pass",
+                    );
+                    ui.label("More passes increase continuity and coherence but take longer.");
+                }
+                CampaignWizardStep::ToneAndBoundaries => {
+                    ui.label("Tone and thematic direction:");
+                    ui.label("Core tone");
+                    ui.text_edit_singleline(&mut wizard.core_tone);
+                    ui.label("Narrative style");
+                    ui.text_edit_singleline(&mut wizard.narrative_style);
+                    ui.horizontal(|ui| {
+                        ui.label("Darkness intensity");
+                        ui.add(egui::Slider::new(&mut wizard.intensity, 1..=5));
+                    });
+                    ui.separator();
+
+                    ui.label("Theme tags");
+                    edit_tag_list(
+                        ui,
+                        &mut wizard.theme_tags,
+                        &mut wizard.new_theme_tag,
+                        "Add theme tag",
+                    );
+
+                    ui.separator();
+                    ui.label("Taboo exclusions (hard blocks)");
+                    edit_tag_list(
+                        ui,
+                        &mut wizard.exclude_tags,
+                        &mut wizard.new_exclude_tag,
+                        "Add exclusion",
+                    );
+
+                    ui.separator();
+                    ui.label("Explicitly included dark elements");
+                    edit_tag_list(
+                        ui,
+                        &mut wizard.include_tags,
+                        &mut wizard.new_include_tag,
+                        "Add included element",
+                    );
+
+                    ui.separator();
+                    ui.label("Custom darker content choices");
+                    edit_tag_list(
+                        ui,
+                        &mut wizard.custom_dark_tags,
+                        &mut wizard.new_custom_dark_tag,
+                        "Add custom dark choice",
+                    );
+                }
+                CampaignWizardStep::Review => {
+                    ui.label("Review campaign generation config:");
+                    ui.separator();
+                    ui.label(format!(
+                        "Scope: timeline={}, npcs={}, factions={}, quest_lines={}, world_bosses={}, roaming_threats={}",
+                        wizard.include_timeline,
+                        wizard.include_npcs,
+                        wizard.include_factions,
+                        wizard.include_quest_lines,
+                        wizard.include_world_bosses,
+                        wizard.include_roaming_threats
+                    ));
+                    ui.label(format!(
+                        "Scale: chapters={}, factions={}, world_bosses={}, npc_density={}",
+                        wizard.chapters,
+                        wizard.faction_count,
+                        wizard.world_boss_count,
+                        match wizard.npc_density {
+                            1 => "low",
+                            2 => "medium",
+                            _ => "high",
+                        }
+                    ));
+                    ui.label(format!(
+                        "Quality: passes={}, consistency_pass={}",
+                        wizard.passes, wizard.run_consistency_pass
+                    ));
+                    ui.label(format!(
+                        "Tone: {} | style: {} | intensity={}",
+                        wizard.core_tone, wizard.narrative_style, wizard.intensity
+                    ));
+                    ui.label(format!("Theme tags: {}", wizard.theme_tags.join(", ")));
+                    ui.label(format!(
+                        "Excluded: {}",
+                        if wizard.exclude_tags.is_empty() {
+                            "none".to_string()
+                        } else {
+                            wizard.exclude_tags.join(", ")
+                        }
+                    ));
+                    ui.label(format!(
+                        "Included: {}",
+                        if wizard.include_tags.is_empty() {
+                            "none".to_string()
+                        } else {
+                            wizard.include_tags.join(", ")
+                        }
+                    ));
+                    ui.label(format!(
+                        "Custom dark choices: {}",
+                        if wizard.custom_dark_tags.is_empty() {
+                            "none".to_string()
+                        } else {
+                            wizard.custom_dark_tags.join(", ")
+                        }
+                    ));
+                    ui.add_space(8.0);
+                    if ui.button("Generate Campaign via LLM").clicked() {
+                        generate_request = Some(wizard.to_generation_config());
+                        close_wizard = true;
+                    }
+                }
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Reset").clicked() {
+                    *wizard = CampaignWizardState::default();
+                }
+
+                if ui
+                    .add_enabled(
+                        wizard.step != CampaignWizardStep::Scope,
+                        egui::Button::new("Back"),
+                    )
+                    .clicked()
+                {
+                    wizard.step = match wizard.step {
+                        CampaignWizardStep::Scope => CampaignWizardStep::Scope,
+                        CampaignWizardStep::Scale => CampaignWizardStep::Scope,
+                        CampaignWizardStep::Quality => CampaignWizardStep::Scale,
+                        CampaignWizardStep::ToneAndBoundaries => CampaignWizardStep::Quality,
+                        CampaignWizardStep::Review => CampaignWizardStep::ToneAndBoundaries,
+                    };
+                }
+
+                if ui
+                    .add_enabled(
+                        wizard.step != CampaignWizardStep::Review,
+                        egui::Button::new("Next"),
+                    )
+                    .clicked()
+                {
+                    wizard.step = match wizard.step {
+                        CampaignWizardStep::Scope => CampaignWizardStep::Scale,
+                        CampaignWizardStep::Scale => CampaignWizardStep::Quality,
+                        CampaignWizardStep::Quality => CampaignWizardStep::ToneAndBoundaries,
+                        CampaignWizardStep::ToneAndBoundaries => CampaignWizardStep::Review,
+                        CampaignWizardStep::Review => CampaignWizardStep::Review,
+                    };
+                }
+            });
+        });
+
+    if close_wizard {
+        open = false;
+    }
+    if let Some(config) = generate_request {
+        let _ = cmd_tx.send(EngineCommand::GenerateCampaign {
+            config,
+            llm: llm_config,
+        });
+    }
+    ui_state.show_campaign_wizard = open;
+}
+
+fn edit_tag_list(
+    ui: &mut egui::Ui,
+    tags: &mut Vec<String>,
+    new_tag: &mut String,
+    placeholder: &str,
+) {
+    let mut remove_idx = None;
+    for (idx, tag) in tags.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(tag);
+            if ui.small_button("Remove").clicked() {
+                remove_idx = Some(idx);
+            }
+        });
+    }
+    if let Some(idx) = remove_idx {
+        tags.remove(idx);
+    }
+
+    ui.horizontal(|ui| {
+        ui.add(egui::TextEdit::singleline(new_tag).hint_text(placeholder));
+        if ui.button("Add").clicked() {
+            let trimmed = new_tag.trim();
+            if !trimmed.is_empty() && !tags.iter().any(|t| t.eq_ignore_ascii_case(trimmed)) {
+                tags.push(trimmed.to_string());
+                new_tag.clear();
+            }
+        }
+    });
 }
 
 fn optional_tabs_status(ui_state: &UiState) -> String {
@@ -1907,6 +2321,7 @@ pub(crate) fn save_config(ui: &UiState) {
         npc_recent_messages_limit: ui.npc_recent_messages_limit.max(1),
         use_structured_events: ui.use_structured_events,
         debug_messages_enabled: ui.debug_messages_enabled,
+        campaign_mode_enabled: ui.campaign_mode_enabled,
     };
     if let Ok(json) = serde_json::to_string_pretty(&cfg) {
         let _ = fs::write(config_path(), json);
@@ -1939,6 +2354,7 @@ fn load_config(ui: &mut UiState) {
             ui.npc_recent_messages_limit = cfg.npc_recent_messages_limit.max(1);
             ui.use_structured_events = cfg.use_structured_events;
             ui.debug_messages_enabled = cfg.debug_messages_enabled;
+            ui.campaign_mode_enabled = cfg.campaign_mode_enabled;
             sanitize_ui_scales(ui);
             ui.apply_chat_log_limit();
         }

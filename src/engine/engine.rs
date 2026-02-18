@@ -2,6 +2,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError, RecvTimeoutError};
 use std::time::{Duration, Instant};
 use std::thread;
 use std::collections::HashSet;
+use serde::{Deserialize, Serialize};
 
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
@@ -591,6 +592,43 @@ pub fn run(&mut self) {
 
             EngineCommand::SetNpcRecencyLimit { limit } => {
                 self.npc_recency_limit = limit.max(1);
+            }
+
+            EngineCommand::GenerateCampaign { config, llm } => {
+                if self.pending_generation.is_some() {
+                    self.send_ui_error("Cannot generate campaign while response generation is in progress.".to_string());
+                    continue;
+                }
+
+                let prompt = build_campaign_generation_prompt(&config);
+                match call_llm(prompt, &llm) {
+                    Ok(output) => {
+                        match parse_campaign_blueprint(&output)
+                            .and_then(|blueprint| validate_campaign_blueprint(&blueprint, &config).map(|_| blueprint))
+                        {
+                            Ok(blueprint) => {
+                                match save_campaign_package(&blueprint, &config) {
+                                    Ok(_) => {}
+                                    Err(err) => {
+                                        self.send_ui_error(format!(
+                                            "Campaign generation validated but package save failed: {}",
+                                            err
+                                        ));
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                self.send_ui_error(format!(
+                                    "Campaign generation failed validation: {}",
+                                    err
+                                ));
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        self.send_ui_error(format!("Campaign generation failed: {}", err));
+                    }
+                }
             }
 
             /* =========================
@@ -1305,6 +1343,36 @@ fn build_requested_context(
             }
             "locations" | "location" => {
                 push_section(&mut out, "LOCATIONS", &load_locations_context());
+            }
+            "campaign" | "campaign_context" => {
+                push_section(&mut out, "CAMPAIGN", &load_campaign_context("campaign"));
+            }
+            "campaign_manifest" | "campaign_meta" => {
+                push_section(&mut out, "CAMPAIGN MANIFEST", &load_campaign_context("campaign_manifest"));
+            }
+            "campaign_state" => {
+                push_section(&mut out, "CAMPAIGN STATE", &load_campaign_context("campaign_state"));
+            }
+            "campaign_timeline" => {
+                push_section(&mut out, "CAMPAIGN TIMELINE", &load_campaign_context("campaign_timeline"));
+            }
+            "campaign_factions" => {
+                push_section(&mut out, "CAMPAIGN FACTIONS", &load_campaign_context("campaign_factions"));
+            }
+            "campaign_npcs" => {
+                push_section(&mut out, "CAMPAIGN NPCS", &load_campaign_context("campaign_npcs"));
+            }
+            "campaign_quests" => {
+                push_section(&mut out, "CAMPAIGN QUESTS", &load_campaign_context("campaign_quests"));
+            }
+            "campaign_bosses" => {
+                push_section(&mut out, "CAMPAIGN BOSSES", &load_campaign_context("campaign_bosses"));
+            }
+            "campaign_threats" | "campaign_roaming_threats" => {
+                push_section(&mut out, "CAMPAIGN THREATS", &load_campaign_context("campaign_threats"));
+            }
+            "campaign_index" => {
+                push_section(&mut out, "CAMPAIGN INDEX", &load_campaign_context("campaign_index"));
             }
             "relationships" => {
                 push_section(&mut out, "RELATIONSHIPS", &format_relationships(state));
@@ -2039,6 +2107,613 @@ fn looks_like_hostile_offer(normalized: &str) -> bool {
     hostile.iter().any(|k| normalized.contains(k))
 }
 
+fn build_campaign_generation_prompt(
+    config: &crate::engine::protocol::CampaignGenerationConfig,
+) -> String {
+    let scope = [
+        ("timeline", config.include_timeline),
+        ("npcs", config.include_npcs),
+        ("factions", config.include_factions),
+        ("quest_lines", config.include_quest_lines),
+        ("world_bosses", config.include_world_bosses),
+        ("roaming_threats", config.include_roaming_threats),
+    ]
+    .iter()
+    .filter_map(|(k, v)| if *v { Some(*k) } else { None })
+    .collect::<Vec<_>>()
+    .join(", ");
+
+    let mut prompt = String::new();
+    prompt.push_str(
+        "You are a campaign architect. Generate a coherent RPG campaign blueprint as strict JSON.\n\
+Return JSON only. Do not include markdown.\n\n",
+    );
+    prompt.push_str("Required JSON shape:\n");
+    prompt.push_str(
+        "{\n\
+  \"summary\": string,\n\
+  \"timeline\": [ { \"chapter\": number, \"title\": string, \"beats\": [string] } ],\n\
+  \"factions\": [ { \"id\": string, \"name\": string, \"goal\": string, \"methods\": [string], \"allies\": [string], \"rivals\": [string] } ],\n\
+  \"npcs\": [ { \"id\": string, \"name\": string, \"faction_id\": string, \"role\": string, \"motivation\": string, \"secrets\": [string] } ],\n\
+  \"quest_lines\": [ { \"id\": string, \"title\": string, \"chapters\": [number], \"steps\": [string], \"rewards\": [string], \"depends_on\": [string] } ],\n\
+  \"world_bosses\": [ { \"id\": string, \"name\": string, \"chapter\": number, \"faction_id\": string, \"arena\": string, \"mechanics\": [string], \"drop_table\": [string] } ],\n\
+  \"roaming_threats\": [ { \"id\": string, \"name\": string, \"regions\": [string], \"behavior\": string, \"danger\": string } ],\n\
+  \"consistency_notes\": [string]\n\
+}\n\n",
+    );
+
+    prompt.push_str("Generation constraints:\n");
+    prompt.push_str(&format!("- scope: {}\n", scope));
+    prompt.push_str(&format!("- chapters: {}\n", config.chapters));
+    prompt.push_str(&format!("- factions: {}\n", config.faction_count));
+    prompt.push_str(&format!("- world_bosses: {}\n", config.world_boss_count));
+    prompt.push_str(&format!("- npc_density: {}\n", config.npc_density));
+    prompt.push_str(&format!("- passes: {}\n", config.passes));
+    prompt.push_str(&format!(
+        "- run_consistency_pass: {}\n",
+        config.run_consistency_pass
+    ));
+    prompt.push_str(&format!("- core_tone: {}\n", config.core_tone));
+    prompt.push_str(&format!("- narrative_style: {}\n", config.narrative_style));
+    prompt.push_str(&format!("- intensity: {}\n", config.intensity));
+
+    if !config.theme_tags.is_empty() {
+        prompt.push_str(&format!("- theme_tags: {}\n", config.theme_tags.join(", ")));
+    }
+    if !config.exclude_tags.is_empty() {
+        prompt.push_str(&format!(
+            "- taboo_exclusions: {}\n",
+            config.exclude_tags.join(", ")
+        ));
+    }
+    if !config.include_tags.is_empty() {
+        prompt.push_str(&format!(
+            "- explicitly_allowed_dark_content: {}\n",
+            config.include_tags.join(", ")
+        ));
+    }
+    if !config.custom_dark_tags.is_empty() {
+        prompt.push_str(&format!(
+            "- custom_dark_choices: {}\n",
+            config.custom_dark_tags.join(", ")
+        ));
+    }
+
+    prompt.push_str(
+        "\nRules:\n\
+- Keep internal consistency across timeline, factions, npcs, and quest dependencies.\n\
+- Ensure every faction has distinct strategy and pressure on the world.\n\
+- Ensure quest_lines and bosses tie into chapter progression.\n\
+- Never include content listed in taboo_exclusions.\n\
+- You may include explicitly_allowed_dark_content and custom_dark_choices.\n\
+- Return JSON only.\n",
+    );
+
+    prompt
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignBlueprint {
+    summary: String,
+    timeline: Vec<CampaignTimelineEntry>,
+    factions: Vec<CampaignFaction>,
+    npcs: Vec<CampaignNpc>,
+    quest_lines: Vec<CampaignQuestLine>,
+    world_bosses: Vec<CampaignWorldBoss>,
+    roaming_threats: Vec<CampaignRoamingThreat>,
+    consistency_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignTimelineEntry {
+    chapter: u32,
+    title: String,
+    beats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignFaction {
+    id: String,
+    name: String,
+    goal: String,
+    methods: Vec<String>,
+    allies: Vec<String>,
+    rivals: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignNpc {
+    id: String,
+    name: String,
+    faction_id: String,
+    role: String,
+    motivation: String,
+    secrets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignQuestLine {
+    id: String,
+    title: String,
+    chapters: Vec<u32>,
+    steps: Vec<String>,
+    rewards: Vec<String>,
+    depends_on: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignWorldBoss {
+    id: String,
+    name: String,
+    chapter: u32,
+    faction_id: String,
+    arena: String,
+    mechanics: Vec<String>,
+    drop_table: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignRoamingThreat {
+    id: String,
+    name: String,
+    regions: Vec<String>,
+    behavior: String,
+    danger: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignManifest {
+    campaign_id: String,
+    summary: String,
+    chapters: u32,
+    generated_unix: u64,
+    scope: Vec<String>,
+    core_tone: String,
+    narrative_style: String,
+    intensity: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignIndex {
+    manifest: String,
+    state: String,
+    timeline: Vec<String>,
+    factions: Vec<String>,
+    npcs: Vec<String>,
+    quest_lines: Vec<String>,
+    world_bosses: Vec<String>,
+    roaming_threats: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CampaignRuntimeState {
+    current_chapter: u32,
+    revealed_factions: Vec<String>,
+    revealed_npcs: Vec<String>,
+    revealed_quests: Vec<String>,
+    defeated_world_bosses: Vec<String>,
+    seen_roaming_threats: Vec<String>,
+}
+
+#[derive(Debug)]
+struct ActiveCampaignBundle {
+    root: std::path::PathBuf,
+    manifest: CampaignManifest,
+    state: CampaignRuntimeState,
+    index: CampaignIndex,
+}
+
+fn parse_campaign_blueprint(raw: &str) -> Result<CampaignBlueprint, String> {
+    let normalized = normalize_campaign_json(raw);
+    if normalized.trim().is_empty() {
+        return Err("Empty campaign response.".to_string());
+    }
+
+    serde_json::from_str::<CampaignBlueprint>(&normalized).or_else(|primary_err| {
+        if let Some(extracted) = extract_json_object(&normalized) {
+            serde_json::from_str::<CampaignBlueprint>(&extracted).map_err(|_| {
+                format!("Invalid campaign JSON shape: {}", primary_err)
+            })
+        } else {
+            Err(format!("Invalid campaign JSON: {}", primary_err))
+        }
+    })
+}
+
+fn validate_campaign_blueprint(
+    blueprint: &CampaignBlueprint,
+    config: &crate::engine::protocol::CampaignGenerationConfig,
+) -> Result<(), String> {
+    if blueprint.summary.trim().is_empty() {
+        return Err("summary is required.".to_string());
+    }
+
+    if config.include_timeline && blueprint.timeline.is_empty() {
+        return Err("timeline is required by scope but is empty.".to_string());
+    }
+    if config.include_factions && blueprint.factions.is_empty() {
+        return Err("factions are required by scope but are empty.".to_string());
+    }
+    if config.include_npcs && blueprint.npcs.is_empty() {
+        return Err("npcs are required by scope but are empty.".to_string());
+    }
+    if config.include_quest_lines && blueprint.quest_lines.is_empty() {
+        return Err("quest_lines are required by scope but are empty.".to_string());
+    }
+    if config.include_world_bosses && config.world_boss_count > 0 && blueprint.world_bosses.is_empty() {
+        return Err("world_bosses are required by scope but are empty.".to_string());
+    }
+    if config.include_roaming_threats && blueprint.roaming_threats.is_empty() {
+        return Err("roaming_threats are required by scope but are empty.".to_string());
+    }
+
+    let mut seen_chapters = std::collections::HashSet::new();
+    for entry in &blueprint.timeline {
+        if entry.chapter == 0 || entry.chapter > config.chapters.max(1) {
+            return Err(format!(
+                "timeline chapter {} is out of allowed range 1..={}.",
+                entry.chapter,
+                config.chapters.max(1)
+            ));
+        }
+        if entry.title.trim().is_empty() {
+            return Err(format!("timeline chapter {} has empty title.", entry.chapter));
+        }
+        if entry.beats.is_empty() {
+            return Err(format!("timeline chapter {} has no beats.", entry.chapter));
+        }
+        seen_chapters.insert(entry.chapter);
+    }
+
+    for faction in &blueprint.factions {
+        if faction.id.trim().is_empty() || faction.name.trim().is_empty() || faction.goal.trim().is_empty() {
+            return Err("factions require non-empty id, name, and goal.".to_string());
+        }
+    }
+
+    for npc in &blueprint.npcs {
+        if npc.id.trim().is_empty() || npc.name.trim().is_empty() || npc.role.trim().is_empty() {
+            return Err("npcs require non-empty id, name, and role.".to_string());
+        }
+    }
+
+    for quest in &blueprint.quest_lines {
+        if quest.id.trim().is_empty() || quest.title.trim().is_empty() {
+            return Err("quest_lines require non-empty id and title.".to_string());
+        }
+        if quest.steps.is_empty() {
+            return Err(format!("quest_line '{}' has no steps.", quest.id));
+        }
+        for chapter in &quest.chapters {
+            if *chapter == 0 || *chapter > config.chapters.max(1) {
+                return Err(format!(
+                    "quest_line '{}' references chapter {} out of range 1..={}.",
+                    quest.id,
+                    chapter,
+                    config.chapters.max(1)
+                ));
+            }
+        }
+    }
+
+    for boss in &blueprint.world_bosses {
+        if boss.id.trim().is_empty() || boss.name.trim().is_empty() {
+            return Err("world_bosses require non-empty id and name.".to_string());
+        }
+        if boss.chapter == 0 || boss.chapter > config.chapters.max(1) {
+            return Err(format!(
+                "world_boss '{}' chapter {} out of range 1..={}.",
+                boss.id,
+                boss.chapter,
+                config.chapters.max(1)
+            ));
+        }
+    }
+
+    for threat in &blueprint.roaming_threats {
+        if threat.id.trim().is_empty() || threat.name.trim().is_empty() {
+            return Err("roaming_threats require non-empty id and name.".to_string());
+        }
+        if threat.regions.is_empty() {
+            return Err(format!("roaming_threat '{}' has no regions.", threat.id));
+        }
+    }
+
+    Ok(())
+}
+
+fn normalize_campaign_json(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+    if s.starts_with("```") {
+        if let Some(first_newline) = s.find('\n') {
+            s = s[(first_newline + 1)..].to_string();
+        }
+        if let Some(end_fence) = s.rfind("```") {
+            s = s[..end_fence].to_string();
+        }
+    }
+    s.trim().to_string()
+}
+
+fn extract_json_object(s: &str) -> Option<String> {
+    let start = s.find('{')?;
+    let end = s.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    Some(s[start..=end].to_string())
+}
+
+fn campaigns_root_dir() -> std::path::PathBuf {
+    std::path::Path::new("data").join("campaigns")
+}
+
+fn save_campaign_package(
+    blueprint: &CampaignBlueprint,
+    config: &crate::engine::protocol::CampaignGenerationConfig,
+) -> Result<std::path::PathBuf, String> {
+    let root = campaigns_root_dir();
+    fs::create_dir_all(&root).map_err(|e| format!("cannot create campaigns directory: {}", e))?;
+
+    let epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("system clock error: {}", e))?;
+
+    let campaign_id = format!("campaign_{}_{}", epoch.as_secs(), epoch.subsec_nanos());
+    let campaign_dir = root.join(&campaign_id);
+    fs::create_dir_all(&campaign_dir)
+        .map_err(|e| format!("cannot create campaign directory: {}", e))?;
+
+    let timeline_dir = campaign_dir.join("timeline");
+    let factions_dir = campaign_dir.join("factions");
+    let npcs_dir = campaign_dir.join("npcs");
+    let quests_dir = campaign_dir.join("quests");
+    let bosses_dir = campaign_dir.join("bosses");
+    let threats_dir = campaign_dir.join("threats");
+    for dir in [&timeline_dir, &factions_dir, &npcs_dir, &quests_dir, &bosses_dir, &threats_dir] {
+        fs::create_dir_all(dir)
+            .map_err(|e| format!("cannot create campaign subdirectory '{}': {}", dir.display(), e))?;
+    }
+
+    let scope = [
+        ("timeline", config.include_timeline),
+        ("npcs", config.include_npcs),
+        ("factions", config.include_factions),
+        ("quest_lines", config.include_quest_lines),
+        ("world_bosses", config.include_world_bosses),
+        ("roaming_threats", config.include_roaming_threats),
+    ]
+    .iter()
+    .filter_map(|(k, v)| if *v { Some((*k).to_string()) } else { None })
+    .collect::<Vec<_>>();
+
+    let manifest = CampaignManifest {
+        campaign_id: campaign_id.clone(),
+        summary: blueprint.summary.clone(),
+        chapters: config.chapters.max(1),
+        generated_unix: epoch.as_secs(),
+        scope,
+        core_tone: config.core_tone.clone(),
+        narrative_style: config.narrative_style.clone(),
+        intensity: config.intensity,
+    };
+
+    let mut timeline_files = Vec::new();
+    for entry in &blueprint.timeline {
+        let name = format!("chapter_{:02}.json", entry.chapter);
+        let rel = format!("timeline/{}", name);
+        write_json_file(&campaign_dir.join(&rel), entry)?;
+        timeline_files.push(rel);
+    }
+
+    let mut faction_files = Vec::new();
+    for faction in &blueprint.factions {
+        let id = sanitize_file_component(&faction.id, "faction");
+        let rel = format!("factions/{}.json", id);
+        write_json_file(&campaign_dir.join(&rel), faction)?;
+        faction_files.push(rel);
+    }
+
+    let mut npc_files = Vec::new();
+    for npc in &blueprint.npcs {
+        let id = sanitize_file_component(&npc.id, "npc");
+        let rel = format!("npcs/{}.json", id);
+        write_json_file(&campaign_dir.join(&rel), npc)?;
+        npc_files.push(rel);
+    }
+
+    let mut quest_files = Vec::new();
+    for quest in &blueprint.quest_lines {
+        let id = sanitize_file_component(&quest.id, "quest");
+        let rel = format!("quests/{}.json", id);
+        write_json_file(&campaign_dir.join(&rel), quest)?;
+        quest_files.push(rel);
+    }
+
+    let mut boss_files = Vec::new();
+    for boss in &blueprint.world_bosses {
+        let id = sanitize_file_component(&boss.id, "boss");
+        let rel = format!("bosses/{}.json", id);
+        write_json_file(&campaign_dir.join(&rel), boss)?;
+        boss_files.push(rel);
+    }
+
+    let mut threat_files = Vec::new();
+    for threat in &blueprint.roaming_threats {
+        let id = sanitize_file_component(&threat.id, "threat");
+        let rel = format!("threats/{}.json", id);
+        write_json_file(&campaign_dir.join(&rel), threat)?;
+        threat_files.push(rel);
+    }
+
+    let state = CampaignRuntimeState {
+        current_chapter: 1,
+        revealed_factions: Vec::new(),
+        revealed_npcs: Vec::new(),
+        revealed_quests: Vec::new(),
+        defeated_world_bosses: Vec::new(),
+        seen_roaming_threats: Vec::new(),
+    };
+
+    let index = CampaignIndex {
+        manifest: "manifest.json".to_string(),
+        state: "state.json".to_string(),
+        timeline: timeline_files,
+        factions: faction_files,
+        npcs: npc_files,
+        quest_lines: quest_files,
+        world_bosses: boss_files,
+        roaming_threats: threat_files,
+    };
+
+    write_json_file(&campaign_dir.join("manifest.json"), &manifest)?;
+    write_json_file(&campaign_dir.join("state.json"), &state)?;
+    write_json_file(&campaign_dir.join("index.json"), &index)?;
+    write_json_file(&campaign_dir.join("blueprint_full.json"), blueprint)?;
+
+    fs::write(root.join("active_campaign.txt"), &campaign_id)
+        .map_err(|e| format!("cannot set active campaign: {}", e))?;
+
+    Ok(campaign_dir)
+}
+
+fn write_json_file<T: Serialize>(path: &std::path::Path, value: &T) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| format!("cannot serialize json '{}': {}", path.display(), e))?;
+    fs::write(path, json).map_err(|e| format!("cannot write '{}': {}", path.display(), e))
+}
+
+fn sanitize_file_component(input: &str, fallback: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_sep = false;
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_sep = false;
+        } else if !last_sep {
+            out.push('_');
+            last_sep = true;
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn load_campaign_context(topic: &str) -> String {
+    let bundle = match load_active_campaign_bundle() {
+        Ok(bundle) => bundle,
+        Err(err) => return format!("Campaign context unavailable: {}", err),
+    };
+
+    match topic {
+        "campaign" | "campaign_context" => {
+            let mut out = String::new();
+            out.push_str("MANIFEST:\n");
+            out.push_str(&to_pretty_json(&bundle.manifest));
+            out.push_str("\n\nSTATE:\n");
+            out.push_str(&to_pretty_json(&bundle.state));
+
+            if let Some(path) = find_current_chapter_file(&bundle.index.timeline, bundle.state.current_chapter) {
+                out.push_str("\n\nCURRENT CHAPTER:\n");
+                out.push_str(&read_campaign_file_or_message(&bundle.root, &path));
+            }
+            out
+        }
+        "campaign_manifest" | "campaign_meta" => to_pretty_json(&bundle.manifest),
+        "campaign_state" => to_pretty_json(&bundle.state),
+        "campaign_index" => to_pretty_json(&bundle.index),
+        "campaign_timeline" => {
+            if let Some(path) = find_current_chapter_file(&bundle.index.timeline, bundle.state.current_chapter) {
+                return read_campaign_file_or_message(&bundle.root, &path);
+            }
+            read_campaign_group(&bundle.root, &bundle.index.timeline, 3)
+        }
+        "campaign_factions" => read_campaign_group(&bundle.root, &bundle.index.factions, 20),
+        "campaign_npcs" => read_campaign_group(&bundle.root, &bundle.index.npcs, 30),
+        "campaign_quests" => read_campaign_group(&bundle.root, &bundle.index.quest_lines, 20),
+        "campaign_bosses" => read_campaign_group(&bundle.root, &bundle.index.world_bosses, 20),
+        "campaign_threats" | "campaign_roaming_threats" => {
+            read_campaign_group(&bundle.root, &bundle.index.roaming_threats, 20)
+        }
+        _ => format!("No campaign provider for topic '{}'.", topic),
+    }
+}
+
+fn load_active_campaign_bundle() -> Result<ActiveCampaignBundle, String> {
+    let root = campaigns_root_dir();
+    let active_path = root.join("active_campaign.txt");
+    let campaign_id = fs::read_to_string(&active_path)
+        .map_err(|e| format!("missing active campaign pointer '{}': {}", active_path.display(), e))?;
+    let campaign_id = campaign_id.trim();
+    if campaign_id.is_empty() {
+        return Err("active campaign pointer is empty.".to_string());
+    }
+
+    let campaign_root = root.join(campaign_id);
+    let manifest: CampaignManifest = read_json_file(&campaign_root.join("manifest.json"))?;
+    let state: CampaignRuntimeState = read_json_file(&campaign_root.join("state.json"))?;
+    let index: CampaignIndex = read_json_file(&campaign_root.join("index.json"))?;
+
+    Ok(ActiveCampaignBundle {
+        root: campaign_root,
+        manifest,
+        state,
+        index,
+    })
+}
+
+fn read_json_file<T: for<'de> Deserialize<'de>>(path: &std::path::Path) -> Result<T, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|e| format!("cannot read '{}': {}", path.display(), e))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| format!("cannot parse '{}': {}", path.display(), e))
+}
+
+fn to_pretty_json<T: Serialize>(value: &T) -> String {
+    serde_json::to_string_pretty(value)
+        .unwrap_or_else(|_| "{}".to_string())
+}
+
+fn find_current_chapter_file(paths: &[String], current_chapter: u32) -> Option<String> {
+    let needle = format!("chapter_{:02}.json", current_chapter);
+    if let Some(path) = paths.iter().find(|p| p.ends_with(&needle)) {
+        return Some(path.clone());
+    }
+    let needle_plain = format!("chapter_{}.json", current_chapter);
+    paths.iter().find(|p| p.ends_with(&needle_plain)).cloned()
+}
+
+fn read_campaign_group(root: &std::path::Path, files: &[String], max_files: usize) -> String {
+    if files.is_empty() {
+        return "None".to_string();
+    }
+    let mut out = String::new();
+    for file in files.iter().take(max_files) {
+        out.push_str(&format!("FILE: {}\n", file));
+        out.push_str(&read_campaign_file_or_message(root, file));
+        out.push_str("\n\n");
+    }
+    if files.len() > max_files {
+        out.push_str(&format!(
+            "... truncated {} additional files\n",
+            files.len().saturating_sub(max_files)
+        ));
+    }
+    out
+}
+
+fn read_campaign_file_or_message(root: &std::path::Path, relative: &str) -> String {
+    let path = root.join(relative);
+    match fs::read_to_string(&path) {
+        Ok(data) => data,
+        Err(err) => format!("unable to read '{}': {}", path.display(), err),
+    }
+}
+
 fn player_accepts_quest(input: &str) -> bool {
     let t = normalize_phrase(input);
     let phrases = [
@@ -2108,11 +2783,26 @@ fn update_action_counts(state: &mut InternalGameState, input: &str) {
             *entry = entry.saturating_add(1);
         }
     }
+
+    // Track direct mentions of any stat id so user-defined stats (e.g., "lust")
+    // can participate in usage-based level growth.
+    let stat_ids: Vec<String> = state.stats.keys().cloned().collect();
+    for stat_id in stat_ids {
+        let needle = stat_id.to_lowercase();
+        if needle.is_empty() {
+            continue;
+        }
+        if text.contains(&needle) {
+            let key = format!("stat::{}", needle);
+            let entry = state.action_counts.entry(key).or_insert(0);
+            *entry = entry.saturating_add(1);
+        }
+    }
 }
 
 fn sync_stats_from_context(state: &mut InternalGameState, context: &crate::model::game_context::GameContext) {
     for (k, v) in &context.player.stats {
-        state.stats.entry(k.to_string()).or_insert(*v);
+        state.stats.insert(k.to_string(), *v);
     }
 }
 
@@ -2128,7 +2818,6 @@ fn apply_level_stat_growth(
     }
 
     let class = context.player.class.to_lowercase();
-    let threshold = context.world.repetition_threshold.max(1);
 
     for _ in 0..gained {
         let mut deltas: Vec<(&str, i32)> = Vec::new();
@@ -2161,27 +2850,57 @@ fn apply_level_stat_growth(
         let stealth = state.action_counts.get("stealth").copied().unwrap_or(0);
         let crafting = state.action_counts.get("crafting").copied().unwrap_or(0);
         let fishing = state.action_counts.get("fishing").copied().unwrap_or(0);
+        let mut usage_scores: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
 
-        if being_hit >= threshold {
-            deltas.push(("constitution", 2));
+        // Built-in action-to-stat mappings.
+        *usage_scores.entry("strength".to_string()).or_insert(0) = mining.saturating_add(woodcutting);
+        *usage_scores.entry("constitution".to_string()).or_insert(0) = being_hit;
+        *usage_scores.entry("agility".to_string()).or_insert(0) = jumping.saturating_add(stealth);
+        *usage_scores.entry("intelligence".to_string()).or_insert(0) = crafting;
+        *usage_scores.entry("luck".to_string()).or_insert(0) = fishing;
+
+        // Dynamic stat usage from direct stat mentions (stat::<id>).
+        for (key, value) in &state.action_counts {
+            if let Some(stat_id) = key.strip_prefix("stat::") {
+                if value > &0 {
+                    let entry = usage_scores.entry(stat_id.to_string()).or_insert(0);
+                    *entry = entry.saturating_add(*value);
+                }
+            }
         }
-        if mining >= threshold {
-            deltas.push(("strength", 1));
+
+        let mut top: Option<(&str, u32)> = None;
+        let mut second: Option<(&str, u32)> = None;
+        for (stat, score) in usage_scores.iter() {
+            if *score == 0 {
+                continue;
+            }
+
+            match top {
+                None => top = Some((stat.as_str(), *score)),
+                Some((_, top_score)) if *score > top_score => {
+                    second = top;
+                    top = Some((stat.as_str(), *score));
+                }
+                _ => match second {
+                    None => second = Some((stat.as_str(), *score)),
+                    Some((_, second_score)) if *score > second_score => {
+                        second = Some((stat.as_str(), *score));
+                    }
+                    _ => {}
+                },
+            }
         }
-        if woodcutting >= threshold {
-            deltas.push(("strength", 1));
-        }
-        if jumping >= threshold {
-            deltas.push(("agility", 1));
-        }
-        if stealth >= threshold {
-            deltas.push(("agility", 1));
-        }
-        if crafting >= threshold {
-            deltas.push(("intelligence", 1));
-        }
-        if fishing >= threshold {
-            deltas.push(("luck", 1));
+
+        if let Some((top_stat, _)) = top {
+            // Most-used play pattern should drive the biggest base stat growth.
+            deltas.push((top_stat, 2));
+            if let Some((second_stat, _)) = second {
+                if second_stat != top_stat {
+                    deltas.push((second_stat, 1));
+                }
+            }
         }
 
         apply_stat_deltas(state, deltas, applications);
