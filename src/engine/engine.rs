@@ -617,6 +617,7 @@ pub fn run(&mut self) {
                 match call_llm(prompt, &llm) {
                     Ok(output) => {
                         match parse_campaign_blueprint(&output)
+                            .map(|blueprint| with_campaign_fallbacks(blueprint, &config))
                             .and_then(|blueprint| validate_campaign_blueprint(&blueprint, &config).map(|_| blueprint))
                         {
                             Ok(blueprint) => {
@@ -2358,12 +2359,21 @@ fn normalize_campaign_blueprint_value(
         &["consistency_notes", "consistency", "notes", "validation_notes"],
     );
 
-    let timeline: Vec<CampaignTimelineEntry> = get_array(root, "timeline")
+    let timeline_rows = get_first_array(
+        root,
+        &["timeline", "chapter_timeline", "chapters", "acts", "story_arc", "story_beats"],
+    );
+    let timeline: Vec<CampaignTimelineEntry> = timeline_rows
         .into_iter()
-        .map(|entry| CampaignTimelineEntry {
-            chapter: get_u32(entry, "chapter"),
-            title: get_string(entry, "title"),
-            beats: get_string_vec(entry, "beats"),
+        .enumerate()
+        .map(|(idx, entry)| CampaignTimelineEntry {
+            chapter: get_first_u32(entry, &["chapter", "index", "act", "number"])
+                .max((idx as u32).saturating_add(1)),
+            title: get_first_nonempty_string(entry, &["title", "name", "heading", "chapter_title"]),
+            beats: get_first_nonempty_string_vec(
+                entry,
+                &["beats", "events", "milestones", "plot_points", "story_beats"],
+            ),
         })
         .collect();
 
@@ -2442,6 +2452,9 @@ fn normalize_campaign_blueprint_value(
 }
 
 fn find_blueprint_root(value: &serde_json::Value) -> &serde_json::Value {
+    if let Some(found) = find_blueprint_root_in(value) {
+        return found;
+    }
     for key in ["blueprint", "campaign", "data"] {
         if let Some(candidate) = value.get(key) {
             if candidate.is_object() {
@@ -2452,14 +2465,77 @@ fn find_blueprint_root(value: &serde_json::Value) -> &serde_json::Value {
     value
 }
 
+fn find_blueprint_root_in<'a>(value: &'a serde_json::Value) -> Option<&'a serde_json::Value> {
+    if !value.is_object() {
+        return None;
+    }
+
+    let has_core_keys = ["timeline", "factions", "npcs", "quest_lines", "world_bosses", "roaming_threats"]
+        .iter()
+        .any(|k| value.get(k).is_some());
+    if has_core_keys {
+        return Some(value);
+    }
+
+    let obj = value.as_object()?;
+    for nested in obj.values() {
+        if let Some(found) = find_blueprint_root_in(nested) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn with_campaign_fallbacks(
+    mut blueprint: CampaignBlueprint,
+    config: &crate::engine::protocol::CampaignGenerationConfig,
+) -> CampaignBlueprint {
+    if config.include_timeline && blueprint.timeline.is_empty() {
+        let mut known_chapters = std::collections::BTreeSet::new();
+
+        for q in &blueprint.quest_lines {
+            for chapter in &q.chapters {
+                if *chapter > 0 {
+                    known_chapters.insert(*chapter);
+                }
+            }
+        }
+        for boss in &blueprint.world_bosses {
+            if boss.chapter > 0 {
+                known_chapters.insert(boss.chapter);
+            }
+        }
+
+        if known_chapters.is_empty() {
+            let max_chapters = config.chapters.max(1);
+            for chapter in 1..=max_chapters {
+                known_chapters.insert(chapter);
+            }
+        }
+
+        blueprint.timeline = known_chapters
+            .into_iter()
+            .map(|chapter| CampaignTimelineEntry {
+                chapter,
+                title: format!("Chapter {}", chapter),
+                beats: vec!["Narrative progression milestone".to_string()],
+            })
+            .collect();
+    }
+
+    blueprint
+}
+
 fn get_array<'a>(
     obj: &'a serde_json::Value,
     key: &str,
 ) -> Vec<&'a serde_json::Value> {
-    obj.get(key)
-        .and_then(|v| v.as_array())
-        .map(|items| items.iter().collect())
-        .unwrap_or_default()
+    match obj.get(key) {
+        Some(serde_json::Value::Array(items)) => items.iter().collect(),
+        Some(serde_json::Value::Object(map)) => map.values().collect(),
+        Some(v) => vec![v],
+        None => Vec::new(),
+    }
 }
 
 fn get_first_nonempty_string(obj: &serde_json::Value, keys: &[&str]) -> String {
@@ -2480,6 +2556,26 @@ fn get_first_nonempty_string_vec(obj: &serde_json::Value, keys: &[&str]) -> Vec<
         }
     }
     Vec::new()
+}
+
+fn get_first_array<'a>(obj: &'a serde_json::Value, keys: &[&str]) -> Vec<&'a serde_json::Value> {
+    for key in keys {
+        let values = get_array(obj, key);
+        if !values.is_empty() {
+            return values;
+        }
+    }
+    Vec::new()
+}
+
+fn get_first_u32(obj: &serde_json::Value, keys: &[&str]) -> u32 {
+    for key in keys {
+        let value = get_u32(obj, key);
+        if value > 0 {
+            return value;
+        }
+    }
+    0
 }
 
 fn build_campaign_summary(
