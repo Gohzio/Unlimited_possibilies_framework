@@ -9,6 +9,7 @@
 # Local data
 character.json
 world.json
+data/campaigns/
 
 # Local images
 *.png
