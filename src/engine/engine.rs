@@ -186,6 +186,19 @@ impl Engine {
         (llm_output, "[]")
     }
 
+    fn apply_event_and_campaign(&mut self, event: NarrativeEvent) -> EventApplyOutcome {
+        let outcome = apply_event(&mut self.game_state, event.clone());
+        if matches!(outcome, EventApplyOutcome::Applied) && is_campaign_runtime_event(&event) {
+            if let Err(err) = update_active_campaign_runtime_state(&event) {
+                self.push_debug_message(format!(
+                    "Campaign runtime update failed for {:?}: {}",
+                    event, err
+                ));
+            }
+        }
+        outcome
+    }
+
 pub fn run(&mut self) {
     loop {
         let mut cmd_opt: Option<EngineCommand> = None;
@@ -452,7 +465,7 @@ pub fn run(&mut self) {
                     armor: None,
                 };
 
-                let outcome = apply_event(&mut self.game_state, event.clone());
+                let outcome = self.apply_event_and_campaign(event.clone());
                 let report = NarrativeApplyReport {
                     applications: vec![EventApplication { event, outcome }],
                 };
@@ -479,7 +492,7 @@ pub fn run(&mut self) {
                     details,
                 };
 
-                let outcome = apply_event(&mut self.game_state, event.clone());
+                let outcome = self.apply_event_and_campaign(event.clone());
                 let report = NarrativeApplyReport {
                     applications: vec![EventApplication { event, outcome }],
                 };
@@ -504,7 +517,7 @@ pub fn run(&mut self) {
                     name: name.clone(),
                     role: role.clone(),
                 };
-                let outcome = apply_event(&mut self.game_state, event.clone());
+                let outcome = self.apply_event_and_campaign(event.clone());
                 if let Some(member) = self.game_state.party.get_mut(&id) {
                     if !details.trim().is_empty() {
                         member.details = details.trim().to_string();
@@ -546,7 +559,7 @@ pub fn run(&mut self) {
                         armor_add: Some(armor_add),
                         armor_remove: Some(armor_remove),
                     };
-                    let outcome = apply_event(&mut self.game_state, event.clone());
+                    let outcome = self.apply_event_and_campaign(event.clone());
                     let report = NarrativeApplyReport {
                         applications: vec![EventApplication { event, outcome }],
                     };
@@ -1007,14 +1020,14 @@ pub fn run(&mut self) {
                         continue;
                     }
                     let sanitized = sanitize_party_update(&event);
-                    let outcome = apply_event(&mut self.game_state, sanitized.clone());
+                    let outcome = self.apply_event_and_campaign(sanitized.clone());
                     applications.push(EventApplication {
                         event: sanitized,
                         outcome,
                     });
                     continue;
                 }
-                let outcome = apply_event(&mut self.game_state, event.clone());
+                let outcome = self.apply_event_and_campaign(event.clone());
                 applications.push(EventApplication { event, outcome });
             }
 
@@ -1123,14 +1136,14 @@ pub fn run(&mut self) {
                     continue;
                 }
                 let sanitized = sanitize_party_update(&event);
-                let outcome = apply_event(&mut self.game_state, sanitized.clone());
+                let outcome = self.apply_event_and_campaign(sanitized.clone());
                 applications.push(EventApplication {
                     event: sanitized,
                     outcome,
                 });
                 continue;
             }
-            let outcome = apply_event(&mut self.game_state, event.clone());
+            let outcome = self.apply_event_and_campaign(event.clone());
             applications.push(EventApplication {
                 event,
                 outcome,
@@ -2288,11 +2301,25 @@ struct CampaignIndex {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CampaignRuntimeState {
     current_chapter: u32,
+    #[serde(default)]
+    current_phase: String,
     revealed_factions: Vec<String>,
     revealed_npcs: Vec<String>,
     revealed_quests: Vec<String>,
+    #[serde(default)]
+    revealed_world_bosses: Vec<String>,
     defeated_world_bosses: Vec<String>,
     seen_roaming_threats: Vec<String>,
+    #[serde(default)]
+    campaign_flags: Vec<String>,
+    #[serde(default)]
+    active_quest_lines: Vec<String>,
+    #[serde(default)]
+    completed_quest_lines: Vec<String>,
+    #[serde(default)]
+    failed_quest_lines: Vec<String>,
+    #[serde(default)]
+    world_boss_states: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -2548,11 +2575,18 @@ fn save_campaign_package(
 
     let state = CampaignRuntimeState {
         current_chapter: 1,
+        current_phase: "opening".to_string(),
         revealed_factions: Vec::new(),
         revealed_npcs: Vec::new(),
         revealed_quests: Vec::new(),
+        revealed_world_bosses: Vec::new(),
         defeated_world_bosses: Vec::new(),
         seen_roaming_threats: Vec::new(),
+        campaign_flags: Vec::new(),
+        active_quest_lines: Vec::new(),
+        completed_quest_lines: Vec::new(),
+        failed_quest_lines: Vec::new(),
+        world_boss_states: std::collections::HashMap::new(),
     };
 
     let index = CampaignIndex {
@@ -2712,6 +2746,149 @@ fn read_campaign_file_or_message(root: &std::path::Path, relative: &str) -> Stri
         Ok(data) => data,
         Err(err) => format!("unable to read '{}': {}", path.display(), err),
     }
+}
+
+fn is_campaign_runtime_event(event: &NarrativeEvent) -> bool {
+    matches!(
+        event,
+        NarrativeEvent::CampaignSetChapter { .. }
+            | NarrativeEvent::CampaignSetPhase { .. }
+            | NarrativeEvent::CampaignReveal { .. }
+            | NarrativeEvent::CampaignSetFlag { .. }
+            | NarrativeEvent::QuestlineAdvance { .. }
+            | NarrativeEvent::QuestlineComplete { .. }
+            | NarrativeEvent::QuestlineFail { .. }
+            | NarrativeEvent::WorldBossState { .. }
+    )
+}
+
+fn update_active_campaign_runtime_state(event: &NarrativeEvent) -> Result<(), String> {
+    let bundle = match load_active_campaign_bundle() {
+        Ok(bundle) => bundle,
+        Err(_) => return Ok(()),
+    };
+    let mut state = bundle.state;
+    let mut changed = false;
+
+    match event {
+        NarrativeEvent::CampaignSetChapter { chapter } => {
+            let max_chapter = bundle.manifest.chapters.max(1);
+            let next = (*chapter).max(1).min(max_chapter);
+            if state.current_chapter != next {
+                state.current_chapter = next;
+                changed = true;
+            }
+        }
+        NarrativeEvent::CampaignSetPhase { phase } => {
+            let trimmed = phase.trim();
+            if !trimmed.is_empty() && state.current_phase != trimmed {
+                state.current_phase = trimmed.to_string();
+                changed = true;
+            }
+        }
+        NarrativeEvent::CampaignReveal { entity_type, id } => {
+            let kind = entity_type.trim().to_lowercase();
+            let target = id.trim();
+            if !kind.is_empty() && !target.is_empty() {
+                changed |= match kind.as_str() {
+                    "faction" | "factions" => push_unique(&mut state.revealed_factions, target),
+                    "npc" | "npcs" | "companion" | "companions" => {
+                        push_unique(&mut state.revealed_npcs, target)
+                    }
+                    "quest" | "quests" | "questline" | "quest_line" | "questlines" => {
+                        push_unique(&mut state.revealed_quests, target)
+                    }
+                    "world_boss" | "worldboss" | "boss" | "bosses" => {
+                        push_unique(&mut state.revealed_world_bosses, target)
+                    }
+                    "threat" | "threats" | "roaming_threat" | "roaming_threats" => {
+                        push_unique(&mut state.seen_roaming_threats, target)
+                    }
+                    _ => push_unique(
+                        &mut state.campaign_flags,
+                        &format!("reveal:{}:{}", kind, target),
+                    ),
+                };
+            }
+        }
+        NarrativeEvent::CampaignSetFlag { flag } => {
+            let trimmed = flag.trim();
+            if !trimmed.is_empty() {
+                changed |= push_unique(&mut state.campaign_flags, trimmed);
+            }
+        }
+        NarrativeEvent::QuestlineAdvance { id, .. } => {
+            let quest_id = id.trim();
+            if !quest_id.is_empty() {
+                changed |= push_unique(&mut state.active_quest_lines, quest_id);
+                changed |= remove_value(&mut state.completed_quest_lines, quest_id);
+                changed |= remove_value(&mut state.failed_quest_lines, quest_id);
+                changed |= push_unique(&mut state.revealed_quests, quest_id);
+            }
+        }
+        NarrativeEvent::QuestlineComplete { id, .. } => {
+            let quest_id = id.trim();
+            if !quest_id.is_empty() {
+                changed |= remove_value(&mut state.active_quest_lines, quest_id);
+                changed |= remove_value(&mut state.failed_quest_lines, quest_id);
+                changed |= push_unique(&mut state.completed_quest_lines, quest_id);
+                changed |= push_unique(&mut state.revealed_quests, quest_id);
+            }
+        }
+        NarrativeEvent::QuestlineFail { id, .. } => {
+            let quest_id = id.trim();
+            if !quest_id.is_empty() {
+                changed |= remove_value(&mut state.active_quest_lines, quest_id);
+                changed |= remove_value(&mut state.completed_quest_lines, quest_id);
+                changed |= push_unique(&mut state.failed_quest_lines, quest_id);
+                changed |= push_unique(&mut state.revealed_quests, quest_id);
+            }
+        }
+        NarrativeEvent::WorldBossState {
+            id,
+            state: boss_state,
+            ..
+        } => {
+            let boss_id = id.trim();
+            let trimmed_state = boss_state.trim().to_lowercase();
+            if !boss_id.is_empty() && !trimmed_state.is_empty() {
+                changed |= push_unique(&mut state.revealed_world_bosses, boss_id);
+                match state.world_boss_states.get(boss_id) {
+                    Some(prev) if prev == &trimmed_state => {}
+                    _ => {
+                        state
+                            .world_boss_states
+                            .insert(boss_id.to_string(), trimmed_state.clone());
+                        changed = true;
+                    }
+                }
+                if trimmed_state == "defeated" {
+                    changed |= push_unique(&mut state.defeated_world_bosses, boss_id);
+                }
+            }
+        }
+        _ => {}
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
+    write_json_file(&bundle.root.join("state.json"), &state)
+}
+
+fn push_unique(values: &mut Vec<String>, value: &str) -> bool {
+    if values.iter().any(|v| v == value) {
+        return false;
+    }
+    values.push(value.to_string());
+    true
+}
+
+fn remove_value(values: &mut Vec<String>, value: &str) -> bool {
+    let before = values.len();
+    values.retain(|v| v != value);
+    before != values.len()
 }
 
 fn player_accepts_quest(input: &str) -> bool {

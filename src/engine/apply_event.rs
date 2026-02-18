@@ -941,6 +941,127 @@ pub fn apply_event(
             state.flags.insert(flag);
             EventApplyOutcome::Applied
         }
+        NarrativeEvent::CampaignSetChapter { chapter } => {
+            state.flags.retain(|f| !f.starts_with("campaign:chapter:"));
+            state.flags.insert(format!("campaign:chapter:{}", chapter.max(1)));
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::CampaignSetPhase { phase } => {
+            let trimmed = phase.trim();
+            if trimmed.is_empty() {
+                return EventApplyOutcome::Deferred {
+                    reason: "campaign_set_phase requires a non-empty phase".to_string(),
+                };
+            }
+            state.flags.retain(|f| !f.starts_with("campaign:phase:"));
+            state
+                .flags
+                .insert(format!("campaign:phase:{}", trimmed.to_lowercase()));
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::CampaignReveal { entity_type, id } => {
+            let kind = entity_type.trim().to_lowercase();
+            let target = id.trim();
+            if kind.is_empty() || target.is_empty() {
+                return EventApplyOutcome::Deferred {
+                    reason: "campaign_reveal requires non-empty entity_type and id".to_string(),
+                };
+            }
+            state
+                .flags
+                .insert(format!("campaign:revealed:{}:{}", kind, target));
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::CampaignSetFlag { flag } => {
+            let trimmed = flag.trim();
+            if trimmed.is_empty() {
+                return EventApplyOutcome::Deferred {
+                    reason: "campaign_set_flag requires a non-empty flag".to_string(),
+                };
+            }
+            state.flags.insert(format!("campaign:{}", trimmed));
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::QuestlineAdvance { id, step_index, note } => {
+            let Some(quest) = state.quests.get_mut(&id) else {
+                return EventApplyOutcome::Deferred {
+                    reason: format!("Quest '{}' not found", id),
+                };
+            };
+
+            quest.status = crate::model::game_state::QuestStatus::Active;
+            if let Some(step_index) = step_index {
+                let idx = step_index.saturating_sub(1) as usize;
+                if !quest.sub_quests.is_empty() {
+                    let limit = idx.min(quest.sub_quests.len().saturating_sub(1));
+                    for step in quest.sub_quests.iter_mut().take(limit.saturating_add(1)) {
+                        step.completed = true;
+                    }
+                }
+            }
+            if let Some(note) = note {
+                let trimmed = note.trim();
+                if !trimmed.is_empty() {
+                    if quest.description.trim().is_empty() {
+                        quest.description = trimmed.to_string();
+                    } else if !quest.description.contains(trimmed) {
+                        quest.description =
+                            format!("{}\n{}", quest.description.trim_end(), trimmed);
+                    }
+                }
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::QuestlineComplete { id, note } => {
+            let Some(quest) = state.quests.get_mut(&id) else {
+                return EventApplyOutcome::Deferred {
+                    reason: format!("Quest '{}' not found", id),
+                };
+            };
+            quest.status = crate::model::game_state::QuestStatus::Completed;
+            for step in &mut quest.sub_quests {
+                step.completed = true;
+            }
+            if let Some(note) = note {
+                let trimmed = note.trim();
+                if !trimmed.is_empty() && !quest.description.contains(trimmed) {
+                    quest.description = format!("{}\n{}", quest.description.trim_end(), trimmed);
+                }
+            }
+            if !quest.rewards_claimed && !quest.rewards.is_empty() {
+                let rewards = quest.rewards.clone();
+                quest.rewards_claimed = true;
+                apply_quest_rewards(state, &rewards);
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::QuestlineFail { id, reason } => {
+            let Some(quest) = state.quests.get_mut(&id) else {
+                return EventApplyOutcome::Deferred {
+                    reason: format!("Quest '{}' not found", id),
+                };
+            };
+            quest.status = crate::model::game_state::QuestStatus::Failed;
+            if let Some(reason) = reason {
+                let trimmed = reason.trim();
+                if !trimmed.is_empty() && !quest.description.contains(trimmed) {
+                    quest.description = format!("{}\nFailure: {}", quest.description.trim_end(), trimmed);
+                }
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::WorldBossState { id, state: boss_state, note } => {
+            upsert_world_boss_card(state, &id, &boss_state, note.as_deref());
+            if boss_state.trim().eq_ignore_ascii_case("defeated") {
+                state.flags.insert(format!("campaign:world_boss_defeated:{}", id));
+            }
+            EventApplyOutcome::Applied
+        }
+        NarrativeEvent::PickupLoot {
+            item,
+            quantity,
+            set_id,
+        } => apply_pickup_loot(state, &item, quantity.unwrap_or(1).max(1), set_id),
 
         NarrativeEvent::AddItem { item_id, quantity, set_id } => {
             let set_id_clone = set_id.clone();
@@ -1129,6 +1250,105 @@ fn apply_quest_rewards(state: &mut InternalGameState, rewards: &[String]) {
             }
         }
     }
+}
+
+fn upsert_world_boss_card(
+    state: &mut InternalGameState,
+    id: &str,
+    status: &str,
+    note: Option<&str>,
+) {
+    let section = state.sections.entry("world_bosses".to_string()).or_default();
+    if let Some(existing) = section.iter_mut().find(|card| card.id == id) {
+        existing.status = status.trim().to_string();
+        if let Some(note) = note {
+            let trimmed = note.trim();
+            if !trimmed.is_empty() {
+                existing.notes = trimmed.to_string();
+            }
+        }
+        return;
+    }
+
+    section.push(crate::model::game_state::CardEntry {
+        id: id.to_string(),
+        name: id.to_string(),
+        role: "world_boss".to_string(),
+        status: status.trim().to_string(),
+        details: String::new(),
+        notes: note.unwrap_or("").trim().to_string(),
+        tags: vec!["campaign".to_string()],
+        items: Vec::new(),
+    });
+}
+
+fn apply_pickup_loot(
+    state: &mut InternalGameState,
+    item: &str,
+    quantity: u32,
+    set_id: Option<String>,
+) -> EventApplyOutcome {
+    let trimmed_item = item.trim();
+    if trimmed_item.is_empty() {
+        return EventApplyOutcome::Deferred {
+            reason: "pickup_loot requires a non-empty item".to_string(),
+        };
+    }
+
+    let mut remaining = quantity;
+    let mut moved = 0_u32;
+    let mut first_description: Option<String> = None;
+
+    for drop in &mut state.loot {
+        if !drop.item.eq_ignore_ascii_case(trimmed_item) {
+            continue;
+        }
+        if let Some(expected_set) = set_id.as_ref() {
+            if drop.set_id.as_ref() != Some(expected_set) {
+                continue;
+            }
+        }
+        if drop.quantity == 0 {
+            continue;
+        }
+        let take = drop.quantity.min(remaining);
+        drop.quantity -= take;
+        remaining -= take;
+        moved += take;
+        if first_description.is_none() {
+            first_description = drop.description.clone();
+        }
+        if remaining == 0 {
+            break;
+        }
+    }
+
+    state.loot.retain(|drop| drop.quantity > 0);
+
+    if moved == 0 {
+        return EventApplyOutcome::Deferred {
+            reason: format!("No available loot named '{}' to pick up", trimmed_item),
+        };
+    }
+
+    let entry = state
+        .inventory
+        .entry(trimmed_item.to_string())
+        .or_insert(crate::model::game_state::ItemStack {
+            id: trimmed_item.to_string(),
+            quantity: 0,
+            description: first_description.clone(),
+            set_id: set_id.clone(),
+        });
+    entry.quantity = entry.quantity.saturating_add(moved);
+    if entry.description.is_none() {
+        entry.description = first_description;
+    }
+    if entry.set_id.is_none() {
+        entry.set_id = set_id;
+    }
+
+    EventApplyOutcome::Applied
 }
 
 fn parse_currency_reward(reward: &str) -> Option<(i32, String)> {

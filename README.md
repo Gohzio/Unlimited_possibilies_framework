@@ -401,6 +401,37 @@ Where to add the schema in LM Studio:
       {
         "type": "object",
         "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "questline_advance" },
+          "id": { "type": "string" },
+          "step_index": { "type": "integer", "minimum": 1 },
+          "note": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "questline_complete" },
+          "id": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": { "const": "questline_fail" },
+          "id": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
         "required": ["type", "topics"],
         "properties": {
           "type": { "const": "request_context" },
@@ -418,6 +449,43 @@ Where to add the schema in LM Studio:
         "required": ["type", "flag"],
         "properties": {
           "type": { "const": "set_flag" },
+          "flag": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "chapter"],
+        "properties": {
+          "type": { "const": "campaign_set_chapter" },
+          "chapter": { "type": "integer", "minimum": 1 }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "phase"],
+        "properties": {
+          "type": { "const": "campaign_set_phase" },
+          "phase": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "entity_type", "id"],
+        "properties": {
+          "type": { "const": "campaign_reveal" },
+          "entity_type": { "type": "string" },
+          "id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "flag"],
+        "properties": {
+          "type": { "const": "campaign_set_flag" },
           "flag": { "type": "string" }
         }
       },
@@ -468,6 +536,17 @@ Where to add the schema in LM Studio:
       {
         "type": "object",
         "additionalProperties": false,
+        "required": ["type", "item"],
+        "properties": {
+          "type": { "const": "pickup_loot" },
+          "item": { "type": "string" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "set_id": { "type": "string" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
         "required": ["type", "currency", "delta"],
         "properties": {
           "type": { "const": "currency_change" },
@@ -507,6 +586,17 @@ Where to add the schema in LM Studio:
           "type": { "const": "faction_rep_change" },
           "id": { "type": "string" },
           "delta": { "type": "integer" }
+        }
+      },
+      {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id", "state"],
+        "properties": {
+          "type": { "const": "world_boss_state" },
+          "id": { "type": "string" },
+          "state": { "type": "string" },
+          "note": { "type": "string" }
         }
       }
     ]

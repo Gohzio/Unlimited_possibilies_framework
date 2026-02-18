@@ -247,6 +247,49 @@ pub enum NarrativeEvent {
     SetFlag {
         flag: String,
     },
+    CampaignSetChapter {
+        chapter: u32,
+    },
+    CampaignSetPhase {
+        phase: String,
+    },
+    CampaignReveal {
+        entity_type: String,
+        id: String,
+    },
+    CampaignSetFlag {
+        flag: String,
+    },
+    QuestlineAdvance {
+        id: String,
+        #[serde(default)]
+        step_index: Option<u32>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    QuestlineComplete {
+        id: String,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    QuestlineFail {
+        id: String,
+        #[serde(default)]
+        reason: Option<String>,
+    },
+    WorldBossState {
+        id: String,
+        state: String,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    PickupLoot {
+        item: String,
+        #[serde(default)]
+        quantity: Option<u32>,
+        #[serde(default)]
+        set_id: Option<String>,
+    },
 
     RequestRetcon {
         reason: String,

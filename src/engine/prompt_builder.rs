@@ -89,7 +89,7 @@ Rules:\n\
 - All game state changes must be expressed ONLY through structured EVENTS.\n\
 - If no state change is required, output an empty events array.\n\
 - When loot appears in the world, you MUST use a drop event to represent it.\n\
-- Do not use add_item unless the player explicitly picks up an item.\n\
+- Do not use add_item for world pickups; use pickup_loot when the player explicitly picks up dropped loot.\n\
 - Crafting and gathering outputs must follow loot rules and use drop/spawn_loot events.\n\
 - You MUST request context for any state-dependent detail you do not have.\n\
 - You must not infer loot, quest state, stats, inventory, currencies, flags, relationships, or NPC details without context.\n\
@@ -118,7 +118,14 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - modify_stat { stat_id, delta }\n\
 - start_quest { id, title, description, difficulty?, negotiable?, reward_options?, rewards?, sub_quests?, declinable? }\n\
 - update_quest { id, title?, description?, status?, difficulty?, negotiable?, reward_options?, rewards?, sub_quests? }\n\
+- questline_advance { id, step_index?, note? }\n\
+- questline_complete { id, note? }\n\
+- questline_fail { id, reason? }\n\
 - set_flag { flag }\n\
+- campaign_set_chapter { chapter }\n\
+- campaign_set_phase { phase }\n\
+- campaign_reveal { entity_type, id }\n\
+- campaign_set_flag { flag }\n\
 - add_party_member { id, name, role }\n\
 - npc_spawn { id?, name, role, details? }\n\
 - npc_update { id?, name?, role?, details? }\n\
@@ -138,10 +145,12 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - unequip_item { item_id }\n\
 - drop { item, quantity?, description?, set_id? }\n\
 - spawn_loot { item, quantity?, description?, set_id? }\n\
+- pickup_loot { item, quantity?, set_id? }\n\
 - currency_change { currency, delta }\n\
 - faction_spawn { id, name, kind?, description? }\n\
 - faction_update { id, name?, kind?, description? }\n\
 - faction_rep_change { id, delta }\n\
+- world_boss_state { id, state, note? }\n\
 - request_context { topics }\n\n"
     );
 
@@ -152,6 +161,10 @@ Event Types (JSON array of objects with a \"type\" field):\n\
 - Use difficulty for quest challenge (e.g., easy, hard, extremely hard).\n\
 - If negotiable is true, include reward_options with alternatives the player can bargain for.\n\
 - update_quest may send partial updates for sub_quests (id required)\n\
+- Use questline_advance/complete/fail for campaign questline state when appropriate.\n\
+- Use campaign_set_chapter/phase/reveal/set_flag to progress hidden campaign state.\n\
+- Use world_boss_state for boss progression (e.g., revealed, engaged, defeated).\n\
+- Use pickup_loot when the player explicitly picks up dropped items.\n\
 - Use add_exp for experience gains. Use modify_stat for stat changes.\n\
 - Use level_up to advance level without awarding experience.\n\n"
     );
