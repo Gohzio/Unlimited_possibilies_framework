@@ -1,9 +1,0 @@
-{
-  "id": "threat_1",
-  "name": "Roaming Threat 1",
-  "regions": [
-    "Region 1"
-  ],
-  "behavior": "Ambushes travelers and disrupts trade routes.",
-  "danger": "high"
-}
