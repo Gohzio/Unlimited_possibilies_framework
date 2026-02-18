@@ -1,0 +1,17 @@
+{
+  "id": "The Order of the Dawn",
+  "name": "The Order of the Dawn",
+  "goal": "Protect the innocent and uphold justice in a corrupt world.",
+  "methods": [
+    "Military intervention",
+    "Investigation",
+    "Public execution"
+  ],
+  "allies": [
+    "House Silvermoon"
+  ],
+  "rivals": [
+    "House Blackthorn",
+    "The Shadow Council"
+  ]
+}

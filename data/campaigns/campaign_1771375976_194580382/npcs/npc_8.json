@@ -1,0 +1,10 @@
+{
+  "id": "npc_8",
+  "name": "Campaign NPC 8",
+  "faction_id": "faction_1",
+  "role": "Operator",
+  "motivation": "Advance their faction's objectives.",
+  "secrets": [
+    "Holds leverage over a local rival."
+  ]
+}

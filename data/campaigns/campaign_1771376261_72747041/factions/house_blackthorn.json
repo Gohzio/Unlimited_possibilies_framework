@@ -1,0 +1,17 @@
+{
+  "id": "House Blackthorn",
+  "name": "House Blackthorn",
+  "goal": "Seize control of the capital through political manipulation and assassination.",
+  "methods": [
+    "Blackmail",
+    "Assassination",
+    "Corruption"
+  ],
+  "allies": [
+    "The Shadow Council"
+  ],
+  "rivals": [
+    "House Silvermoon",
+    "The Order of the Dawn"
+  ]
+}

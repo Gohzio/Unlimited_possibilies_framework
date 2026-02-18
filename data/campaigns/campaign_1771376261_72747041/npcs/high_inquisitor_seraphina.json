@@ -1,0 +1,11 @@
+{
+  "id": "High Inquisitor Seraphina",
+  "name": "High Inquisitor Seraphina",
+  "faction_id": "The Order of the Dawn",
+  "role": "Leader of The Order of the Dawn",
+  "motivation": "Uphold justice and eradicate corruption, no matter the cost.",
+  "secrets": [
+    "Has a dark past she's hiding from",
+    "Plans to execute a key ally"
+  ]
+}

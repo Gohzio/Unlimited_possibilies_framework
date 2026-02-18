@@ -1,0 +1,18 @@
+{
+  "id": "questline_ch2",
+  "title": "Chapter 2 Arc",
+  "chapters": [
+    2
+  ],
+  "steps": [
+    "Investigate a regional power shift.",
+    "Choose an alliance or betrayal.",
+    "Resolve the chapter conflict."
+  ],
+  "rewards": [
+    "Chapter reward cache"
+  ],
+  "depends_on": [
+    "questline_ch1"
+  ]
+}

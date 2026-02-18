@@ -1,0 +1,10 @@
+{
+  "id": "faction_1",
+  "name": "Faction 1",
+  "goal": "Expand influence and secure strategic advantage.",
+  "methods": [
+    "political pressure"
+  ],
+  "allies": [],
+  "rivals": []
+}

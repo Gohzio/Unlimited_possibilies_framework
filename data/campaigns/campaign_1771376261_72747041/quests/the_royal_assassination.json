@@ -1,0 +1,20 @@
+{
+  "id": "The Royal Assassination",
+  "title": "The Royal Assassination",
+  "chapters": [
+    2,
+    3
+  ],
+  "steps": [
+    "Assassinate Lord Alistair Blackthorn",
+    "Frame The Shadow Council for the crime",
+    "Escape through a secret passage in the castle"
+  ],
+  "rewards": [
+    "A seat on the council of Eldoria",
+    "Military support from House Silvermoon"
+  ],
+  "depends_on": [
+    "House Silvermoon"
+  ]
+}

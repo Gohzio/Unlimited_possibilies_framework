@@ -1,0 +1,19 @@
+{
+  "id": "The Ancient Ritual",
+  "title": "The Ancient Ritual",
+  "chapters": [
+    3
+  ],
+  "steps": [
+    "Retrieve a key artifact from an ancient ruin",
+    "Perform a dark ritual in the heart of Eldoria's capital",
+    "Escape through a hidden portal"
+  ],
+  "rewards": [
+    "Access to ancient secrets and forbidden knowledge",
+    "A powerful ally within The Shadow Council"
+  ],
+  "depends_on": [
+    "The Order of the Dawn"
+  ]
+}

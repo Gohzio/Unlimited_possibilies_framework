@@ -1,0 +1,270 @@
+{
+  "summary": "In the grimdark world of Eldoria, power struggles define the fate of nations. Five factions vie for control: House Blackthorn, House Silvermoon, The Shadow Council, The Merchant Guild, and The Order of the Dawn. Ancient secrets and forbidden knowledge lurk beneath the surface, waiting to be uncovered by those bold enough to seek them out.",
+  "timeline": [
+    {
+      "chapter": 1,
+      "title": "The Spark of Rebellion",
+      "beats": [
+        "The assassination of a key political figure",
+        "A mysterious artifact surfaces in the capital",
+        "Rumors spread about an ancient ritual"
+      ]
+    },
+    {
+      "chapter": 2,
+      "title": "The Flames of War",
+      "beats": [
+        "House Silvermoon launches a military campaign against House Blackthorn",
+        "The Shadow Council manipulates the economy for their own gain",
+        "A key ally is betrayed by their faction"
+      ]
+    },
+    {
+      "chapter": 3,
+      "title": "The Ashes of Empire",
+      "beats": [
+        "The ancient ritual is performed, unleashing a dark power",
+        "The factions scramble to claim the artifact and its secrets",
+        "A final battle for control of Eldoria erupts in the capital"
+      ]
+    }
+  ],
+  "factions": [
+    {
+      "id": "House Blackthorn",
+      "name": "House Blackthorn",
+      "goal": "Seize control of the capital through political manipulation and assassination.",
+      "methods": [
+        "Blackmail",
+        "Assassination",
+        "Corruption"
+      ],
+      "allies": [
+        "The Shadow Council"
+      ],
+      "rivals": [
+        "House Silvermoon",
+        "The Order of the Dawn"
+      ]
+    },
+    {
+      "id": "House Silvermoon",
+      "name": "House Silvermoon",
+      "goal": "Restore the old monarchy and crush all rebellion.",
+      "methods": [
+        "Military force",
+        "Propaganda",
+        "Religious fervor"
+      ],
+      "allies": [
+        "The Order of the Dawn"
+      ],
+      "rivals": [
+        "House Blackthorn",
+        "The Shadow Council"
+      ]
+    },
+    {
+      "id": "The Shadow Council",
+      "name": "The Shadow Council",
+      "goal": "Establish a new order based on ancient secrets and forbidden knowledge.",
+      "methods": [
+        "Manipulation of magic",
+        "Cult recruitment",
+        "Blackmail"
+      ],
+      "allies": [
+        "The Shadow Council"
+      ],
+      "rivals": [
+        "House Silvermoon",
+        "The Order of the Dawn"
+      ]
+    },
+    {
+      "id": "The Merchant Guild",
+      "name": "The Merchant Guild",
+      "goal": "Control the flow of information and resources through economic dominance.",
+      "methods": [
+        "Economic manipulation",
+        "Bribery",
+        "Sabotage"
+      ],
+      "allies": [
+        "House Blackthorn"
+      ],
+      "rivals": [
+        "House Silvermoon",
+        "The Shadow Council"
+      ]
+    },
+    {
+      "id": "The Order of the Dawn",
+      "name": "The Order of the Dawn",
+      "goal": "Protect the innocent and uphold justice in a corrupt world.",
+      "methods": [
+        "Military intervention",
+        "Investigation",
+        "Public execution"
+      ],
+      "allies": [
+        "House Silvermoon"
+      ],
+      "rivals": [
+        "House Blackthorn",
+        "The Shadow Council"
+      ]
+    }
+  ],
+  "npcs": [
+    {
+      "id": "Lord Alistair Blackthorn",
+      "name": "Lord Alistair Blackthorn",
+      "faction_id": "House Blackthorn",
+      "role": "Head of House Blackthorn",
+      "motivation": "Preserve his family's power and legacy at any cost.",
+      "secrets": [
+        "Has a secret illegitimate child",
+        "Plans to assassinate the current king"
+      ]
+    },
+    {
+      "id": "Lady Elara Silvermoon",
+      "name": "Lady Elara Silvermoon",
+      "faction_id": "House Silvermoon",
+      "role": "Heir to House Silvermoon",
+      "motivation": "Restore her family's honor and reclaim their rightful place.",
+      "secrets": [
+        "Is secretly a member of The Shadow Council",
+        "Plans to overthrow her father"
+      ]
+    },
+    {
+      "id": "Grandmaster Vex'thar",
+      "name": "Grandmaster Vex'thar",
+      "faction_id": "The Shadow Council",
+      "role": "Leader of The Shadow Council",
+      "motivation": "Uncover the ancient secrets that will grant him ultimate power.",
+      "secrets": [
+        "Has a forbidden artifact hidden in his sanctum",
+        "Plans to sacrifice a key ally"
+      ]
+    },
+    {
+      "id": "Master Thorne",
+      "name": "Master Thorne",
+      "faction_id": "The Merchant Guild",
+      "role": "Head of The Merchant Guild",
+      "motivation": "Expand his guild's influence and secure his family's fortune.",
+      "secrets": [
+        "Has a secret slave trader operation",
+        "Plans to manipulate the economy for personal gain"
+      ]
+    },
+    {
+      "id": "High Inquisitor Seraphina",
+      "name": "High Inquisitor Seraphina",
+      "faction_id": "The Order of the Dawn",
+      "role": "Leader of The Order of the Dawn",
+      "motivation": "Uphold justice and eradicate corruption, no matter the cost.",
+      "secrets": [
+        "Has a dark past she's hiding from",
+        "Plans to execute a key ally"
+      ]
+    }
+  ],
+  "quest_lines": [
+    {
+      "id": "The Black Market Heist",
+      "title": "The Black Market Heist",
+      "chapters": [
+        1,
+        2
+      ],
+      "steps": [
+        "Infiltrate the merchant guild's headquarters",
+        "Steal a key document from Master Thorne's office",
+        "Escape through the underground tunnels"
+      ],
+      "rewards": [
+        "Access to The Shadow Council's secrets",
+        "A powerful artifact"
+      ],
+      "depends_on": [
+        "The Merchant Guild"
+      ]
+    },
+    {
+      "id": "The Royal Assassination",
+      "title": "The Royal Assassination",
+      "chapters": [
+        2,
+        3
+      ],
+      "steps": [
+        "Assassinate Lord Alistair Blackthorn",
+        "Frame The Shadow Council for the crime",
+        "Escape through a secret passage in the castle"
+      ],
+      "rewards": [
+        "A seat on the council of Eldoria",
+        "Military support from House Silvermoon"
+      ],
+      "depends_on": [
+        "House Silvermoon"
+      ]
+    },
+    {
+      "id": "The Ancient Ritual",
+      "title": "The Ancient Ritual",
+      "chapters": [
+        3
+      ],
+      "steps": [
+        "Retrieve a key artifact from an ancient ruin",
+        "Perform a dark ritual in the heart of Eldoria's capital",
+        "Escape through a hidden portal"
+      ],
+      "rewards": [
+        "Access to ancient secrets and forbidden knowledge",
+        "A powerful ally within The Shadow Council"
+      ],
+      "depends_on": [
+        "The Order of the Dawn"
+      ]
+    }
+  ],
+  "world_bosses": [
+    {
+      "id": "Lord Alistair Blackthorn",
+      "name": "Lord Alistair Blackthorn",
+      "chapter": 2,
+      "faction_id": "House Silvermoon",
+      "arena": "The Whispering Woods",
+      "mechanics": [
+        "Summons shadow minions to fight alongside him",
+        "Has a powerful area-of-effect attack"
+      ],
+      "drop_table": [
+        "A rare artifact",
+        "A powerful weapon"
+      ]
+    }
+  ],
+  "roaming_threats": [
+    {
+      "id": "The Bandit King",
+      "name": "The Bandit King",
+      "regions": [
+        "The Whispering Woods",
+        "The Crimson Peaks"
+      ],
+      "behavior": "Ambush travelers and caravans for resources",
+      "danger": "High"
+    }
+  ],
+  "consistency_notes": [
+    "The campaign is set in the grimdark political fantasy world of Eldoria, where power struggles define the fate of nations. The narrative style grounds players in a realistic setting with mythic spikes that hint at ancient secrets and forgotten lore.",
+    "Each faction has distinct goals, methods, allies, and rivals to create a complex web of intrigue. Quests tie into chapter progression and faction dynamics, while world bosses serve as major obstacles tied to specific chapters."
+  ]
+}

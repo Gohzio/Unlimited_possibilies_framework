@@ -1,0 +1,11 @@
+{
+  "id": "Grandmaster Vex'thar",
+  "name": "Grandmaster Vex'thar",
+  "faction_id": "The Shadow Council",
+  "role": "Leader of The Shadow Council",
+  "motivation": "Uncover the ancient secrets that will grant him ultimate power.",
+  "secrets": [
+    "Has a forbidden artifact hidden in his sanctum",
+    "Plans to sacrifice a key ally"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "manifest": "manifest.json",
+  "state": "state.json",
+  "timeline": [
+    "timeline/chapter_01.json",
+    "timeline/chapter_02.json",
+    "timeline/chapter_03.json"
+  ],
+  "factions": [
+    "factions/house_blackthorn.json",
+    "factions/house_silvermoon.json",
+    "factions/the_shadow_council.json",
+    "factions/the_merchant_guild.json",
+    "factions/the_order_of_the_dawn.json"
+  ],
+  "npcs": [
+    "npcs/lord_alistair_blackthorn.json",
+    "npcs/lady_elara_silvermoon.json",
+    "npcs/grandmaster_vex_thar.json",
+    "npcs/master_thorne.json",
+    "npcs/high_inquisitor_seraphina.json"
+  ],
+  "quest_lines": [
+    "quests/the_black_market_heist.json",
+    "quests/the_royal_assassination.json",
+    "quests/the_ancient_ritual.json"
+  ],
+  "world_bosses": [
+    "bosses/lord_alistair_blackthorn.json"
+  ],
+  "roaming_threats": [
+    "threats/the_bandit_king.json"
+  ]
+}

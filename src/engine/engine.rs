@@ -7,7 +7,13 @@ use serde::{Deserialize, Serialize};
 use crate::engine::apply_event::apply_event;
 use crate::engine::protocol::{EngineCommand, EngineResponse};
 use crate::engine::prompt_builder::PromptBuilder;
-use crate::engine::llm_client::{abort_generation, call_llm, call_llm_events_structured, test_connection};
+use crate::engine::llm_client::{
+    abort_generation,
+    call_llm,
+    call_llm_campaign_structured,
+    call_llm_events_structured,
+    test_connection,
+};
 use crate::engine::narrative_parser::parse_narrative;
 
 use crate::model::event_result::{
@@ -83,6 +89,27 @@ impl Engine {
     fn push_debug_message(&mut self, message: String) {
         if self.debug_messages_enabled {
             self.messages.push(Message::System(message));
+        }
+    }
+
+    fn call_campaign_generation_model(
+        &mut self,
+        prompt: String,
+        llm: &crate::engine::llm_client::LlmConfig,
+    ) -> Result<String, String> {
+        if matches!(llm.api_mode, crate::engine::llm_client::LlmApiMode::OpenAiChat) {
+            match call_llm_campaign_structured(prompt.clone(), llm) {
+                Ok(output) => Ok(output),
+                Err(err) => {
+                    self.push_debug_message(format!(
+                        "Structured campaign generation failed, falling back to plain call: {}",
+                        err
+                    ));
+                    call_llm(prompt, llm).map_err(|e| e.to_string())
+                }
+            }
+        } else {
+            call_llm(prompt, llm).map_err(|e| e.to_string())
         }
     }
 
@@ -608,41 +635,123 @@ pub fn run(&mut self) {
             }
 
             EngineCommand::GenerateCampaign { config, llm } => {
+                let messages_start = self.messages.len();
                 if self.pending_generation.is_some() {
                     self.send_ui_error("Cannot generate campaign while response generation is in progress.".to_string());
                     continue;
                 }
 
-                let prompt = build_campaign_generation_prompt(&config);
-                match call_llm(prompt, &llm) {
-                    Ok(output) => {
-                        match parse_campaign_blueprint(&output)
-                            .map(|blueprint| with_campaign_fallbacks(blueprint, &config))
-                            .and_then(|blueprint| validate_campaign_blueprint(&blueprint, &config).map(|_| blueprint))
-                        {
-                            Ok(blueprint) => {
-                                match save_campaign_package(&blueprint, &config) {
-                                    Ok(_) => {}
-                                    Err(err) => {
-                                        self.send_ui_error(format!(
-                                            "Campaign generation validated but package save failed: {}",
-                                            err
-                                        ));
-                                    }
-                                }
-                            }
-                            Err(err) => {
-                                self.send_ui_error(format!(
-                                    "Campaign generation failed validation: {}",
-                                    err
-                                ));
-                            }
+                let total_passes = config.passes.max(1);
+                let mut working_blueprint: Option<CampaignBlueprint> = None;
+                let mut failed = false;
+
+                for pass_index in 1..=total_passes {
+                    let prompt = if let Some(current) = &working_blueprint {
+                        build_campaign_refinement_prompt(
+                            &config,
+                            current,
+                            pass_index,
+                            total_passes,
+                            false,
+                        )
+                    } else {
+                        build_campaign_generation_prompt(&config)
+                    };
+
+                    let output = match self.call_campaign_generation_model(prompt, &llm) {
+                        Ok(output) => output,
+                        Err(err) => {
+                            self.send_ui_error(format!(
+                                "Campaign generation failed on pass {}/{}: {}",
+                                pass_index, total_passes, err
+                            ));
+                            failed = true;
+                            break;
+                        }
+                    };
+
+                    let parsed = parse_campaign_blueprint(&output)
+                        .map(|blueprint| with_campaign_fallbacks(blueprint, &config))
+                        .and_then(|blueprint| {
+                            validate_campaign_blueprint(&blueprint, &config).map(|_| blueprint)
+                        });
+
+                    match parsed {
+                        Ok(blueprint) => working_blueprint = Some(blueprint),
+                        Err(err) => {
+                            self.send_ui_error(format!(
+                                "Campaign generation failed validation on pass {}/{}: {}",
+                                pass_index, total_passes, err
+                            ));
+                            failed = true;
+                            break;
                         }
                     }
-                    Err(err) => {
-                        self.send_ui_error(format!("Campaign generation failed: {}", err));
+                }
+
+                if failed {
+                    continue;
+                }
+
+                if config.run_consistency_pass {
+                    let Some(current) = &working_blueprint else {
+                        self.send_ui_error("Campaign consistency pass aborted: no draft blueprint available.".to_string());
+                        continue;
+                    };
+                    let prompt = build_campaign_refinement_prompt(
+                        &config,
+                        current,
+                        total_passes + 1,
+                        total_passes + 1,
+                        true,
+                    );
+                    let output = match self.call_campaign_generation_model(prompt, &llm) {
+                        Ok(output) => output,
+                        Err(err) => {
+                            self.send_ui_error(format!(
+                                "Campaign consistency pass failed: {}",
+                                err
+                            ));
+                            continue;
+                        }
+                    };
+
+                    let parsed = parse_campaign_blueprint(&output)
+                        .map(|blueprint| with_campaign_fallbacks(blueprint, &config))
+                        .and_then(|blueprint| {
+                            validate_campaign_blueprint(&blueprint, &config).map(|_| blueprint)
+                        });
+                    match parsed {
+                        Ok(blueprint) => working_blueprint = Some(blueprint),
+                        Err(err) => {
+                            self.send_ui_error(format!(
+                                "Campaign consistency pass failed validation: {}",
+                                err
+                            ));
+                            continue;
+                        }
                     }
                 }
+
+                let Some(blueprint) = working_blueprint else {
+                    self.send_ui_error("Campaign generation failed: no blueprint produced.".to_string());
+                    continue;
+                };
+
+                let blueprint = with_campaign_fallbacks(blueprint, &config);
+                match save_campaign_package(&blueprint, &config) {
+                    Ok(_) => {
+                        self.messages
+                            .push(Message::System("Campaign generated.".to_string()));
+                    }
+                    Err(err) => {
+                        self.send_ui_error(format!(
+                            "Campaign generation validated but package save failed: {}",
+                            err
+                        ));
+                    }
+                }
+                self.send_new_messages_since(messages_start);
             }
 
             /* =========================
@@ -2206,6 +2315,78 @@ Return JSON only. Do not include markdown.\n\n",
     prompt
 }
 
+fn build_campaign_refinement_prompt(
+    config: &crate::engine::protocol::CampaignGenerationConfig,
+    current: &CampaignBlueprint,
+    pass_index: u32,
+    total_passes: u32,
+    consistency_only: bool,
+) -> String {
+    let current_json = serde_json::to_string_pretty(current).unwrap_or_else(|_| "{}".to_string());
+    let mut prompt = String::new();
+    prompt.push_str(
+        "You are a campaign architect performing iterative refinement on an existing RPG campaign blueprint.\n\
+Return JSON only. Do not include markdown.\n\n",
+    );
+
+    if consistency_only {
+        prompt.push_str("This is the FINAL consistency pass.\n");
+        prompt.push_str("Focus on coherence, dependencies, and chapter alignment without changing core tone.\n\n");
+    } else {
+        prompt.push_str(&format!(
+            "This is refinement pass {} of {}.\n",
+            pass_index, total_passes
+        ));
+        prompt.push_str("Improve clarity, continuity, and cross-section consistency.\n\n");
+    }
+
+    prompt.push_str("Required JSON shape:\n");
+    prompt.push_str(
+        "{\n\
+  \"summary\": string,\n\
+  \"timeline\": [ { \"chapter\": number, \"title\": string, \"beats\": [string] } ],\n\
+  \"factions\": [ { \"id\": string, \"name\": string, \"goal\": string, \"methods\": [string], \"allies\": [string], \"rivals\": [string] } ],\n\
+  \"npcs\": [ { \"id\": string, \"name\": string, \"faction_id\": string, \"role\": string, \"motivation\": string, \"secrets\": [string] } ],\n\
+  \"quest_lines\": [ { \"id\": string, \"title\": string, \"chapters\": [number], \"steps\": [string], \"rewards\": [string], \"depends_on\": [string] } ],\n\
+  \"world_bosses\": [ { \"id\": string, \"name\": string, \"chapter\": number, \"faction_id\": string, \"arena\": string, \"mechanics\": [string], \"drop_table\": [string] } ],\n\
+  \"roaming_threats\": [ { \"id\": string, \"name\": string, \"regions\": [string], \"behavior\": string, \"danger\": string } ],\n\
+  \"consistency_notes\": [string]\n\
+}\n\n",
+    );
+
+    prompt.push_str("Generation constraints:\n");
+    prompt.push_str(&format!("- chapters: {}\n", config.chapters));
+    prompt.push_str(&format!("- factions: {}\n", config.faction_count));
+    prompt.push_str(&format!("- world_bosses: {}\n", config.world_boss_count));
+    prompt.push_str(&format!("- npc_density: {}\n", config.npc_density));
+    prompt.push_str(&format!("- core_tone: {}\n", config.core_tone));
+    prompt.push_str(&format!("- narrative_style: {}\n", config.narrative_style));
+    prompt.push_str(&format!("- intensity: {}\n", config.intensity));
+    if !config.exclude_tags.is_empty() {
+        prompt.push_str(&format!(
+            "- taboo_exclusions: {}\n",
+            config.exclude_tags.join(", ")
+        ));
+    }
+    if !config.include_tags.is_empty() {
+        prompt.push_str(&format!(
+            "- explicitly_allowed_dark_content: {}\n",
+            config.include_tags.join(", ")
+        ));
+    }
+    if !config.custom_dark_tags.is_empty() {
+        prompt.push_str(&format!(
+            "- custom_dark_choices: {}\n",
+            config.custom_dark_tags.join(", ")
+        ));
+    }
+
+    prompt.push_str("\nCurrent blueprint JSON:\n");
+    prompt.push_str(&current_json);
+    prompt.push_str("\n\nReturn the improved full blueprint JSON object only.\n");
+    prompt
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CampaignBlueprint {
     summary: String,
@@ -2490,6 +2671,8 @@ fn with_campaign_fallbacks(
     mut blueprint: CampaignBlueprint,
     config: &crate::engine::protocol::CampaignGenerationConfig,
 ) -> CampaignBlueprint {
+    let max_chapters = config.chapters.max(1);
+
     if config.include_timeline && blueprint.timeline.is_empty() {
         let mut known_chapters = std::collections::BTreeSet::new();
 
@@ -2507,7 +2690,6 @@ fn with_campaign_fallbacks(
         }
 
         if known_chapters.is_empty() {
-            let max_chapters = config.chapters.max(1);
             for chapter in 1..=max_chapters {
                 known_chapters.insert(chapter);
             }
@@ -2519,6 +2701,96 @@ fn with_campaign_fallbacks(
                 chapter,
                 title: format!("Chapter {}", chapter),
                 beats: vec!["Narrative progression milestone".to_string()],
+            })
+            .collect();
+    }
+
+    if config.include_factions && blueprint.factions.is_empty() {
+        let count = config.faction_count.max(1);
+        blueprint.factions = (1..=count)
+            .map(|i| CampaignFaction {
+                id: format!("faction_{}", i),
+                name: format!("Faction {}", i),
+                goal: "Expand influence and secure strategic advantage.".to_string(),
+                methods: vec!["political pressure".to_string()],
+                allies: Vec::new(),
+                rivals: Vec::new(),
+            })
+            .collect();
+    }
+
+    if config.include_npcs && blueprint.npcs.is_empty() {
+        let density_mult = match config.npc_density.trim().to_lowercase().as_str() {
+            "low" => 1_u32,
+            "high" => 3_u32,
+            _ => 2_u32,
+        };
+        let npc_count = (config.faction_count.max(1) * density_mult).min(30);
+        let primary_faction = blueprint
+            .factions
+            .first()
+            .map(|f| f.id.clone())
+            .unwrap_or_else(|| "faction_1".to_string());
+        blueprint.npcs = (1..=npc_count)
+            .map(|i| CampaignNpc {
+                id: format!("npc_{}", i),
+                name: format!("Campaign NPC {}", i),
+                faction_id: primary_faction.clone(),
+                role: "Operator".to_string(),
+                motivation: "Advance their faction's objectives.".to_string(),
+                secrets: vec!["Holds leverage over a local rival.".to_string()],
+            })
+            .collect();
+    }
+
+    if config.include_quest_lines && blueprint.quest_lines.is_empty() {
+        blueprint.quest_lines = (1..=max_chapters)
+            .map(|chapter| CampaignQuestLine {
+                id: format!("questline_ch{}", chapter),
+                title: format!("Chapter {} Arc", chapter),
+                chapters: vec![chapter],
+                steps: vec![
+                    "Investigate a regional power shift.".to_string(),
+                    "Choose an alliance or betrayal.".to_string(),
+                    "Resolve the chapter conflict.".to_string(),
+                ],
+                rewards: vec!["Chapter reward cache".to_string()],
+                depends_on: if chapter > 1 {
+                    vec![format!("questline_ch{}", chapter - 1)]
+                } else {
+                    Vec::new()
+                },
+            })
+            .collect();
+    }
+
+    if config.include_world_bosses && config.world_boss_count > 0 && blueprint.world_bosses.is_empty() {
+        let faction_id = blueprint
+            .factions
+            .first()
+            .map(|f| f.id.clone())
+            .unwrap_or_else(|| "faction_1".to_string());
+        blueprint.world_bosses = (1..=config.world_boss_count)
+            .map(|i| CampaignWorldBoss {
+                id: format!("world_boss_{}", i),
+                name: format!("World Boss {}", i),
+                chapter: ((i - 1) % max_chapters) + 1,
+                faction_id: faction_id.clone(),
+                arena: format!("Ruin of Chapter {}", ((i - 1) % max_chapters) + 1),
+                mechanics: vec!["Phase shift at 50% health".to_string()],
+                drop_table: vec!["Boss-touched relic".to_string()],
+            })
+            .collect();
+    }
+
+    if config.include_roaming_threats && blueprint.roaming_threats.is_empty() {
+        blueprint.roaming_threats = (1..=max_chapters.min(6))
+            .map(|i| CampaignRoamingThreat {
+                id: format!("threat_{}", i),
+                name: format!("Roaming Threat {}", i),
+                regions: vec![format!("Region {}", i)],
+                behavior: "Ambushes travelers and disrupts trade routes.".to_string(),
+                danger: "high".to_string(),
             })
             .collect();
     }
@@ -2722,9 +2994,7 @@ fn validate_campaign_blueprint(
         return Err("summary is required.".to_string());
     }
 
-    if config.include_timeline && blueprint.timeline.is_empty() {
-        return Err("timeline is required by scope but is empty.".to_string());
-    }
+    // Timeline is synthesized in fallback if missing; do not fail hard here.
     if config.include_factions && blueprint.factions.is_empty() {
         return Err("factions are required by scope but are empty.".to_string());
     }

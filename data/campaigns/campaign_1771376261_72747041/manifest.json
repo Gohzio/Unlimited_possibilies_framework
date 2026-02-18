@@ -1,0 +1,17 @@
+{
+  "campaign_id": "campaign_1771376261_72747041",
+  "summary": "In the grimdark world of Eldoria, power struggles define the fate of nations. Five factions vie for control: House Blackthorn, House Silvermoon, The Shadow Council, The Merchant Guild, and The Order of the Dawn. Ancient secrets and forbidden knowledge lurk beneath the surface, waiting to be uncovered by those bold enough to seek them out.",
+  "chapters": 3,
+  "generated_unix": 1771376261,
+  "scope": [
+    "timeline",
+    "npcs",
+    "factions",
+    "quest_lines",
+    "world_bosses",
+    "roaming_threats"
+  ],
+  "core_tone": "Grimdark political fantasy",
+  "narrative_style": "Grounded with mythic spikes",
+  "intensity": 3
+}

@@ -1,0 +1,41 @@
+{
+  "manifest": "manifest.json",
+  "state": "state.json",
+  "timeline": [
+    "timeline/chapter_01.json",
+    "timeline/chapter_02.json",
+    "timeline/chapter_03.json"
+  ],
+  "factions": [
+    "factions/faction_1.json",
+    "factions/faction_2.json",
+    "factions/faction_3.json",
+    "factions/faction_4.json",
+    "factions/faction_5.json"
+  ],
+  "npcs": [
+    "npcs/npc_1.json",
+    "npcs/npc_2.json",
+    "npcs/npc_3.json",
+    "npcs/npc_4.json",
+    "npcs/npc_5.json",
+    "npcs/npc_6.json",
+    "npcs/npc_7.json",
+    "npcs/npc_8.json",
+    "npcs/npc_9.json",
+    "npcs/npc_10.json"
+  ],
+  "quest_lines": [
+    "quests/questline_ch1.json",
+    "quests/questline_ch2.json",
+    "quests/questline_ch3.json"
+  ],
+  "world_bosses": [
+    "bosses/world_boss_1.json"
+  ],
+  "roaming_threats": [
+    "threats/threat_1.json",
+    "threats/threat_2.json",
+    "threats/threat_3.json"
+  ]
+}

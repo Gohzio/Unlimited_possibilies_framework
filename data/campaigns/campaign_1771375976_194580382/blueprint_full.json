@@ -1,0 +1,279 @@
+{
+  "summary": "Generated campaign",
+  "timeline": [
+    {
+      "chapter": 1,
+      "title": "Chapter 1",
+      "beats": [
+        "Narrative progression milestone"
+      ]
+    },
+    {
+      "chapter": 2,
+      "title": "Chapter 2",
+      "beats": [
+        "Narrative progression milestone"
+      ]
+    },
+    {
+      "chapter": 3,
+      "title": "Chapter 3",
+      "beats": [
+        "Narrative progression milestone"
+      ]
+    }
+  ],
+  "factions": [
+    {
+      "id": "faction_1",
+      "name": "Faction 1",
+      "goal": "Expand influence and secure strategic advantage.",
+      "methods": [
+        "political pressure"
+      ],
+      "allies": [],
+      "rivals": []
+    },
+    {
+      "id": "faction_2",
+      "name": "Faction 2",
+      "goal": "Expand influence and secure strategic advantage.",
+      "methods": [
+        "political pressure"
+      ],
+      "allies": [],
+      "rivals": []
+    },
+    {
+      "id": "faction_3",
+      "name": "Faction 3",
+      "goal": "Expand influence and secure strategic advantage.",
+      "methods": [
+        "political pressure"
+      ],
+      "allies": [],
+      "rivals": []
+    },
+    {
+      "id": "faction_4",
+      "name": "Faction 4",
+      "goal": "Expand influence and secure strategic advantage.",
+      "methods": [
+        "political pressure"
+      ],
+      "allies": [],
+      "rivals": []
+    },
+    {
+      "id": "faction_5",
+      "name": "Faction 5",
+      "goal": "Expand influence and secure strategic advantage.",
+      "methods": [
+        "political pressure"
+      ],
+      "allies": [],
+      "rivals": []
+    }
+  ],
+  "npcs": [
+    {
+      "id": "npc_1",
+      "name": "Campaign NPC 1",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_2",
+      "name": "Campaign NPC 2",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_3",
+      "name": "Campaign NPC 3",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_4",
+      "name": "Campaign NPC 4",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_5",
+      "name": "Campaign NPC 5",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_6",
+      "name": "Campaign NPC 6",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_7",
+      "name": "Campaign NPC 7",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_8",
+      "name": "Campaign NPC 8",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_9",
+      "name": "Campaign NPC 9",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    },
+    {
+      "id": "npc_10",
+      "name": "Campaign NPC 10",
+      "faction_id": "faction_1",
+      "role": "Operator",
+      "motivation": "Advance their faction's objectives.",
+      "secrets": [
+        "Holds leverage over a local rival."
+      ]
+    }
+  ],
+  "quest_lines": [
+    {
+      "id": "questline_ch1",
+      "title": "Chapter 1 Arc",
+      "chapters": [
+        1
+      ],
+      "steps": [
+        "Investigate a regional power shift.",
+        "Choose an alliance or betrayal.",
+        "Resolve the chapter conflict."
+      ],
+      "rewards": [
+        "Chapter reward cache"
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "questline_ch2",
+      "title": "Chapter 2 Arc",
+      "chapters": [
+        2
+      ],
+      "steps": [
+        "Investigate a regional power shift.",
+        "Choose an alliance or betrayal.",
+        "Resolve the chapter conflict."
+      ],
+      "rewards": [
+        "Chapter reward cache"
+      ],
+      "depends_on": [
+        "questline_ch1"
+      ]
+    },
+    {
+      "id": "questline_ch3",
+      "title": "Chapter 3 Arc",
+      "chapters": [
+        3
+      ],
+      "steps": [
+        "Investigate a regional power shift.",
+        "Choose an alliance or betrayal.",
+        "Resolve the chapter conflict."
+      ],
+      "rewards": [
+        "Chapter reward cache"
+      ],
+      "depends_on": [
+        "questline_ch2"
+      ]
+    }
+  ],
+  "world_bosses": [
+    {
+      "id": "world_boss_1",
+      "name": "World Boss 1",
+      "chapter": 1,
+      "faction_id": "faction_1",
+      "arena": "Ruin of Chapter 1",
+      "mechanics": [
+        "Phase shift at 50% health"
+      ],
+      "drop_table": [
+        "Boss-touched relic"
+      ]
+    }
+  ],
+  "roaming_threats": [
+    {
+      "id": "threat_1",
+      "name": "Roaming Threat 1",
+      "regions": [
+        "Region 1"
+      ],
+      "behavior": "Ambushes travelers and disrupts trade routes.",
+      "danger": "high"
+    },
+    {
+      "id": "threat_2",
+      "name": "Roaming Threat 2",
+      "regions": [
+        "Region 2"
+      ],
+      "behavior": "Ambushes travelers and disrupts trade routes.",
+      "danger": "high"
+    },
+    {
+      "id": "threat_3",
+      "name": "Roaming Threat 3",
+      "regions": [
+        "Region 3"
+      ],
+      "behavior": "Ambushes travelers and disrupts trade routes.",
+      "danger": "high"
+    }
+  ],
+  "consistency_notes": []
+}

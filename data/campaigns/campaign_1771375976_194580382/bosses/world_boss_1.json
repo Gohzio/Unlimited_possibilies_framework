@@ -1,0 +1,13 @@
+{
+  "id": "world_boss_1",
+  "name": "World Boss 1",
+  "chapter": 1,
+  "faction_id": "faction_1",
+  "arena": "Ruin of Chapter 1",
+  "mechanics": [
+    "Phase shift at 50% health"
+  ],
+  "drop_table": [
+    "Boss-touched relic"
+  ]
+}

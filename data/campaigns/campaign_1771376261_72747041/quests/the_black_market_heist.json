@@ -1,0 +1,20 @@
+{
+  "id": "The Black Market Heist",
+  "title": "The Black Market Heist",
+  "chapters": [
+    1,
+    2
+  ],
+  "steps": [
+    "Infiltrate the merchant guild's headquarters",
+    "Steal a key document from Master Thorne's office",
+    "Escape through the underground tunnels"
+  ],
+  "rewards": [
+    "Access to The Shadow Council's secrets",
+    "A powerful artifact"
+  ],
+  "depends_on": [
+    "The Merchant Guild"
+  ]
+}

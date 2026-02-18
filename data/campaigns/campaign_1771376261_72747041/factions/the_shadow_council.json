@@ -1,0 +1,17 @@
+{
+  "id": "The Shadow Council",
+  "name": "The Shadow Council",
+  "goal": "Establish a new order based on ancient secrets and forbidden knowledge.",
+  "methods": [
+    "Manipulation of magic",
+    "Cult recruitment",
+    "Blackmail"
+  ],
+  "allies": [
+    "The Shadow Council"
+  ],
+  "rivals": [
+    "House Silvermoon",
+    "The Order of the Dawn"
+  ]
+}

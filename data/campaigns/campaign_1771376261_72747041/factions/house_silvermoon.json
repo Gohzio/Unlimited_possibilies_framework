@@ -1,0 +1,17 @@
+{
+  "id": "House Silvermoon",
+  "name": "House Silvermoon",
+  "goal": "Restore the old monarchy and crush all rebellion.",
+  "methods": [
+    "Military force",
+    "Propaganda",
+    "Religious fervor"
+  ],
+  "allies": [
+    "The Order of the Dawn"
+  ],
+  "rivals": [
+    "House Blackthorn",
+    "The Shadow Council"
+  ]
+}

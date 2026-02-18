@@ -186,6 +186,56 @@ pub fn call_llm_events_structured(
     Ok(first.message.content.clone())
 }
 
+pub fn call_llm_campaign_structured(
+    prompt: String,
+    cfg: &LlmConfig,
+) -> anyhow::Result<String> {
+    if !matches!(cfg.api_mode, LlmApiMode::OpenAiChat) {
+        return Err(anyhow!("Structured campaign output is only supported for OpenAI-compatible mode"));
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()?;
+
+    let schema_value: serde_json::Value =
+        serde_json::from_str(CAMPAIGN_SCHEMA).map_err(|e| anyhow!(e))?;
+
+    let req = ChatCompletionRequest {
+        model: cfg.model.clone(),
+        temperature: 0.2,
+        max_tokens: Some(4000),
+        response_format: Some(ResponseFormat {
+            format_type: "json_schema".to_string(),
+            json_schema: JsonSchemaWrapper {
+                name: "campaign_blueprint".to_string(),
+                strict: true,
+                schema: schema_value,
+            },
+        }),
+        messages: vec![
+            ChatMessage {
+                role: "system".into(),
+                content: "Return only one JSON object matching the schema exactly. No markdown and no event arrays.".to_string(),
+            },
+            ChatMessage {
+                role: "user".into(),
+                content: prompt,
+            },
+        ],
+    };
+
+    let url = join_url(&cfg.base_url, "chat/completions");
+    let mut request = client.post(url).json(&req);
+    if let Some(key) = cfg.api_key.as_ref().filter(|k| !k.trim().is_empty()) {
+        request = request.bearer_auth(key);
+    }
+
+    let resp = request.send()?.json::<ChatCompletionResponse>()?;
+    let first = resp.choices.get(0).ok_or_else(|| anyhow!("LLM returned no choices"))?;
+    Ok(first.message.content.clone())
+}
+
 const EVENTS_SCHEMA: &str = r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "NarrativeEvents",
@@ -725,6 +775,122 @@ const EVENTS_SCHEMA: &str = r#"{
         }
       }
     ]
+  }
+}"#;
+
+const CAMPAIGN_SCHEMA: &str = r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "timeline",
+    "factions",
+    "npcs",
+    "quest_lines",
+    "world_bosses",
+    "roaming_threats",
+    "consistency_notes"
+  ],
+  "properties": {
+    "summary": { "type": "string" },
+    "timeline": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["chapter", "title", "beats"],
+        "properties": {
+          "chapter": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "beats": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "factions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "goal", "methods", "allies", "rivals"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "goal": { "type": "string" },
+          "methods": { "type": "array", "items": { "type": "string" } },
+          "allies": { "type": "array", "items": { "type": "string" } },
+          "rivals": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "npcs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "faction_id", "role", "motivation", "secrets"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "faction_id": { "type": "string" },
+          "role": { "type": "string" },
+          "motivation": { "type": "string" },
+          "secrets": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "quest_lines": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "chapters", "steps", "rewards", "depends_on"],
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "chapters": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+          "steps": { "type": "array", "items": { "type": "string" } },
+          "rewards": { "type": "array", "items": { "type": "string" } },
+          "depends_on": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "world_bosses": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "chapter", "faction_id", "arena", "mechanics", "drop_table"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "chapter": { "type": "integer", "minimum": 1 },
+          "faction_id": { "type": "string" },
+          "arena": { "type": "string" },
+          "mechanics": { "type": "array", "items": { "type": "string" } },
+          "drop_table": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "roaming_threats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "regions", "behavior", "danger"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "regions": { "type": "array", "items": { "type": "string" } },
+          "behavior": { "type": "string" },
+          "danger": { "type": "string" }
+        }
+      }
+    },
+    "consistency_notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
   }
 }"#;
 

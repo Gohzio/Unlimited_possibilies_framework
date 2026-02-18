@@ -1,0 +1,11 @@
+{
+  "id": "Lady Elara Silvermoon",
+  "name": "Lady Elara Silvermoon",
+  "faction_id": "House Silvermoon",
+  "role": "Heir to House Silvermoon",
+  "motivation": "Restore her family's honor and reclaim their rightful place.",
+  "secrets": [
+    "Is secretly a member of The Shadow Council",
+    "Plans to overthrow her father"
+  ]
+}
