@@ -1006,15 +1006,13 @@ pub fn run(&mut self) {
                         } else {
                             let warning = "Structured EVENTS added new event types; using raw EVENTS instead.";
                             self.push_debug_message(warning.to_string());
-                            self.send_ui_error(warning.to_string());
                             None
                         }
                     }
                     Err(err) => {
                         let warning =
                             format!("Structured EVENTS failed, using raw EVENTS: {}", err);
-                        self.push_debug_message(warning.clone());
-                        self.send_ui_error(warning);
+                        self.push_debug_message(warning);
                         None
                     }
                 }
@@ -1097,15 +1095,13 @@ pub fn run(&mut self) {
                             } else {
                                 let warning = "Structured EVENTS added new event types; using raw EVENTS instead.";
                                 self.push_debug_message(warning.to_string());
-                                self.send_ui_error(warning.to_string());
                                 None
                             }
                         }
                         Err(err) => {
                             let warning =
                                 format!("Structured EVENTS failed, using raw EVENTS: {}", err);
-                            self.push_debug_message(warning.clone());
-                            self.send_ui_error(warning);
+                            self.push_debug_message(warning);
                             None
                         }
                     }

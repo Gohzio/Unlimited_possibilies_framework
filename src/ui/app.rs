@@ -1420,7 +1420,7 @@ fn default_npc_recent_messages_limit() -> usize {
 }
 
 fn default_debug_messages_enabled() -> bool {
-    true
+    false
 }
 
 fn default_campaign_mode_enabled() -> bool {
