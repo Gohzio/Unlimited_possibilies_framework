@@ -2336,15 +2336,227 @@ fn parse_campaign_blueprint(raw: &str) -> Result<CampaignBlueprint, String> {
         return Err("Empty campaign response.".to_string());
     }
 
-    serde_json::from_str::<CampaignBlueprint>(&normalized).or_else(|primary_err| {
+    let parsed = serde_json::from_str::<serde_json::Value>(&normalized).or_else(|primary_err| {
         if let Some(extracted) = extract_json_object(&normalized) {
-            serde_json::from_str::<CampaignBlueprint>(&extracted).map_err(|_| {
+            serde_json::from_str::<serde_json::Value>(&extracted).map_err(|_| {
                 format!("Invalid campaign JSON shape: {}", primary_err)
             })
         } else {
             Err(format!("Invalid campaign JSON: {}", primary_err))
         }
+    })?;
+
+    normalize_campaign_blueprint_value(parsed)
+}
+
+fn normalize_campaign_blueprint_value(
+    value: serde_json::Value,
+) -> Result<CampaignBlueprint, String> {
+    let root = find_blueprint_root(&value);
+
+    let summary = get_string(root, "summary");
+    let consistency_notes = get_string_vec(root, "consistency_notes");
+
+    let timeline = get_array(root, "timeline")
+        .into_iter()
+        .map(|entry| CampaignTimelineEntry {
+            chapter: get_u32(entry, "chapter"),
+            title: get_string(entry, "title"),
+            beats: get_string_vec(entry, "beats"),
+        })
+        .collect();
+
+    let factions = get_array(root, "factions")
+        .into_iter()
+        .map(|f| CampaignFaction {
+            id: get_string(f, "id"),
+            name: get_string(f, "name"),
+            goal: get_string(f, "goal"),
+            methods: get_string_vec(f, "methods"),
+            allies: get_string_vec(f, "allies"),
+            rivals: get_string_vec(f, "rivals"),
+        })
+        .collect();
+
+    let npcs = get_array(root, "npcs")
+        .into_iter()
+        .map(|n| CampaignNpc {
+            id: get_string(n, "id"),
+            name: get_string(n, "name"),
+            faction_id: get_string(n, "faction_id"),
+            role: get_string(n, "role"),
+            motivation: get_string(n, "motivation"),
+            secrets: get_string_vec(n, "secrets"),
+        })
+        .collect();
+
+    let quest_lines = get_array(root, "quest_lines")
+        .into_iter()
+        .map(|q| CampaignQuestLine {
+            id: get_string(q, "id"),
+            title: get_string(q, "title"),
+            chapters: get_u32_vec(q, "chapters"),
+            steps: get_string_vec(q, "steps"),
+            rewards: get_string_vec(q, "rewards"),
+            depends_on: get_string_vec(q, "depends_on"),
+        })
+        .collect();
+
+    let world_bosses = get_array(root, "world_bosses")
+        .into_iter()
+        .map(|b| CampaignWorldBoss {
+            id: get_string(b, "id"),
+            name: get_string(b, "name"),
+            chapter: get_u32(b, "chapter"),
+            faction_id: get_string(b, "faction_id"),
+            arena: get_string(b, "arena"),
+            mechanics: get_string_vec(b, "mechanics"),
+            drop_table: get_string_vec(b, "drop_table"),
+        })
+        .collect();
+
+    let roaming_threats = get_array(root, "roaming_threats")
+        .into_iter()
+        .map(|t| CampaignRoamingThreat {
+            id: get_string(t, "id"),
+            name: get_string(t, "name"),
+            regions: get_string_vec(t, "regions"),
+            behavior: get_string(t, "behavior"),
+            danger: get_string(t, "danger"),
+        })
+        .collect();
+
+    Ok(CampaignBlueprint {
+        summary,
+        timeline,
+        factions,
+        npcs,
+        quest_lines,
+        world_bosses,
+        roaming_threats,
+        consistency_notes,
     })
+}
+
+fn find_blueprint_root(value: &serde_json::Value) -> &serde_json::Value {
+    for key in ["blueprint", "campaign", "data"] {
+        if let Some(candidate) = value.get(key) {
+            if candidate.is_object() {
+                return candidate;
+            }
+        }
+    }
+    value
+}
+
+fn get_array<'a>(
+    obj: &'a serde_json::Value,
+    key: &str,
+) -> Vec<&'a serde_json::Value> {
+    obj.get(key)
+        .and_then(|v| v.as_array())
+        .map(|items| items.iter().collect())
+        .unwrap_or_default()
+}
+
+fn get_string(obj: &serde_json::Value, key: &str) -> String {
+    obj.get(key).map(value_to_string).unwrap_or_default()
+}
+
+fn get_string_vec(obj: &serde_json::Value, key: &str) -> Vec<String> {
+    match obj.get(key) {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .map(value_to_string)
+            .filter(|v| !v.trim().is_empty())
+            .collect(),
+        Some(v) => {
+            let one = value_to_string(v);
+            if one.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![one]
+            }
+        }
+        None => Vec::new(),
+    }
+}
+
+fn get_u32(obj: &serde_json::Value, key: &str) -> u32 {
+    obj.get(key).map(value_to_u32).unwrap_or(0)
+}
+
+fn get_u32_vec(obj: &serde_json::Value, key: &str) -> Vec<u32> {
+    match obj.get(key) {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .map(value_to_u32)
+            .filter(|v| *v > 0)
+            .collect(),
+        Some(v) => {
+            let one = value_to_u32(v);
+            if one > 0 {
+                vec![one]
+            } else {
+                Vec::new()
+            }
+        }
+        None => Vec::new(),
+    }
+}
+
+fn value_to_u32(value: &serde_json::Value) -> u32 {
+    match value {
+        serde_json::Value::Number(n) => n.as_u64().unwrap_or(0).min(u32::MAX as u64) as u32,
+        serde_json::Value::String(s) => s.trim().parse::<u32>().unwrap_or(0),
+        serde_json::Value::Object(map) => {
+            for key in ["chapter", "value", "number", "index"] {
+                if let Some(v) = map.get(key) {
+                    let parsed = value_to_u32(v);
+                    if parsed > 0 {
+                        return parsed;
+                    }
+                }
+            }
+            0
+        }
+        _ => 0,
+    }
+}
+
+fn value_to_string(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.trim().to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(value_to_string)
+            .filter(|s| !s.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(", "),
+        serde_json::Value::Object(map) => {
+            for key in [
+                "text",
+                "value",
+                "name",
+                "title",
+                "summary",
+                "description",
+                "label",
+                "id",
+            ] {
+                if let Some(v) = map.get(key) {
+                    let candidate = value_to_string(v);
+                    if !candidate.trim().is_empty() {
+                        return candidate;
+                    }
+                }
+            }
+            serde_json::to_string(value).unwrap_or_default()
+        }
+        serde_json::Value::Null => String::new(),
+    }
 }
 
 fn validate_campaign_blueprint(
