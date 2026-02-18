@@ -778,3 +778,18 @@ This engine should eventually be able to:
 ---
 
 > “If the LLM surprises the engine, the engine should learn — not panic.”
+
+## Hardware Tiers (12B Baseline)
+
+The table below assumes a 12B model as the lowest practical baseline for this app.
+
+| Tier | GPU | VRAM | RAM | Expected Speed | Experience |
+|---|---|---:|---:|---|---|
+| Minimum | RTX 3060 / 4060 Ti class | 12 GB | 16 GB | ~8-18 tok/s | Usable chat, slow multi-pass campaign |
+| Recommended | RTX 4070 Ti / 4080 class | 16 GB | 32 GB | ~18-35 tok/s | Smooth chat, practical campaign generation |
+| Ideal | RTX 5080 / 4090+ class | 16-24+ GB | 32-64 GB | ~30-60+ tok/s | Fast chat, multi-pass campaigns feel responsive |
+
+Notes:
+- `passes` + consistency pass scales generation time roughly linearly with number of calls.
+- SSD storage is strongly recommended for model load and startup responsiveness.
+- Lower VRAM can still run 12B with heavier quantization, but quality/speed trade-offs increase.
