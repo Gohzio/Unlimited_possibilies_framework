@@ -634,7 +634,7 @@ pub fn run(&mut self) {
                 self.npc_recency_limit = limit.max(1);
             }
 
-            EngineCommand::GenerateCampaign { config, llm } => {
+            EngineCommand::GenerateCampaign { config, llm, world } => {
                 let messages_start = self.messages.len();
                 if self.pending_generation.is_some() {
                     self.send_ui_error("Cannot generate campaign while response generation is in progress.".to_string());
@@ -649,13 +649,14 @@ pub fn run(&mut self) {
                     let prompt = if let Some(current) = &working_blueprint {
                         build_campaign_refinement_prompt(
                             &config,
+                            &world,
                             current,
                             pass_index,
                             total_passes,
                             false,
                         )
                     } else {
-                        build_campaign_generation_prompt(&config)
+                        build_campaign_generation_prompt(&config, &world)
                     };
 
                     let output = match self.call_campaign_generation_model(prompt, &llm) {
@@ -700,6 +701,7 @@ pub fn run(&mut self) {
                     };
                     let prompt = build_campaign_refinement_prompt(
                         &config,
+                        &world,
                         current,
                         total_passes + 1,
                         total_passes + 1,
@@ -2232,6 +2234,7 @@ fn looks_like_hostile_offer(normalized: &str) -> bool {
 
 fn build_campaign_generation_prompt(
     config: &crate::engine::protocol::CampaignGenerationConfig,
+    world: &crate::ui::app::WorldDefinition,
 ) -> String {
     let scope = [
         ("timeline", config.include_timeline),
@@ -2302,6 +2305,8 @@ Return JSON only. Do not include markdown.\n\n",
         ));
     }
 
+    append_campaign_world_context(&mut prompt, world);
+
     prompt.push_str(
         "\nRules:\n\
 - Keep internal consistency across timeline, factions, npcs, and quest dependencies.\n\
@@ -2317,6 +2322,7 @@ Return JSON only. Do not include markdown.\n\n",
 
 fn build_campaign_refinement_prompt(
     config: &crate::engine::protocol::CampaignGenerationConfig,
+    world: &crate::ui::app::WorldDefinition,
     current: &CampaignBlueprint,
     pass_index: u32,
     total_passes: u32,
@@ -2380,11 +2386,42 @@ Return JSON only. Do not include markdown.\n\n",
             config.custom_dark_tags.join(", ")
         ));
     }
+    append_campaign_world_context(&mut prompt, world);
 
     prompt.push_str("\nCurrent blueprint JSON:\n");
     prompt.push_str(&current_json);
     prompt.push_str("\n\nReturn the improved full blueprint JSON object only.\n");
     prompt
+}
+
+fn append_campaign_world_context(
+    prompt: &mut String,
+    world: &crate::ui::app::WorldDefinition,
+) {
+    prompt.push_str("\nLoaded world context (must align campaign to this):\n");
+    prompt.push_str(&format!("- world_title: {}\n", world.title.trim()));
+    prompt.push_str(&format!("- world_author: {}\n", world.author.trim()));
+    let description = world.description.trim();
+    if !description.is_empty() {
+        prompt.push_str("- world_description:\n");
+        prompt.push_str(description);
+        prompt.push('\n');
+    }
+    if !world.themes.is_empty() {
+        prompt.push_str(&format!("- world_themes: {}\n", world.themes.join(", ")));
+    }
+    if !world.tone.is_empty() {
+        prompt.push_str(&format!("- world_tone: {}\n", world.tone.join(", ")));
+    }
+    if !world.must_not.is_empty() {
+        prompt.push_str(&format!("- world_must_not: {}\n", world.must_not.join(" | ")));
+    }
+    if !world.must_always.is_empty() {
+        prompt.push_str(&format!(
+            "- world_must_always: {}\n",
+            world.must_always.join(" | ")
+        ));
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

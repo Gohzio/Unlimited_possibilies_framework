@@ -120,6 +120,7 @@ pub enum EngineCommand {
     GenerateCampaign {
         config: CampaignGenerationConfig,
         llm: LlmConfig,
+        world: crate::ui::app::WorldDefinition,
     },
 
     SaveGame {

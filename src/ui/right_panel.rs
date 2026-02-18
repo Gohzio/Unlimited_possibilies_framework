@@ -86,9 +86,11 @@ fn draw_player(ui: &mut egui::Ui, state: &mut UiState) {
     }
 
     if let Some(snapshot) = &state.snapshot {
+        let level = snapshot.player.level.max(1);
         let exp_to_next = snapshot.player.exp_to_next.max(1);
         let exp = snapshot.player.exp.max(0);
         let progress = (exp as f32 / exp_to_next as f32).clamp(0.0, 1.0);
+        ui.label(format!("Level: {}", level));
         ui.add(
             egui::ProgressBar::new(progress)
                 .text(format!("EXP: {}/{}", exp, exp_to_next)),

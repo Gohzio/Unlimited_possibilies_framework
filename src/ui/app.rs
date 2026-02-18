@@ -2200,6 +2200,7 @@ fn draw_campaign_wizard_window(
         let _ = cmd_tx.send(EngineCommand::GenerateCampaign {
             config,
             llm: llm_config,
+            world: ui_state.world.clone(),
         });
     }
     if ui_state.campaign_wizard != wizard_before {
